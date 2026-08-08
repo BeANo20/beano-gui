@@ -245,6 +245,9 @@ local function stopScript()
 	if globalEnvironment.__BEANO_GUI_CLEANUP == stopScript then
 		globalEnvironment.__BEANO_GUI_CLEANUP = nil
 	end
+	globalEnvironment.__BEANO_MM2_LAUNCHED = nil
+	globalEnvironment.__BEANO_LAUNCH_MM2 = nil
+	globalEnvironment.__BEANO_HUB_WINDOW = nil
 	if gui then
 		gui:Destroy()
 	end
@@ -4036,31 +4039,19 @@ local function loadRayfieldLibrary()
 end
 local rayfieldLoaded, Rayfield, rayfieldLoadError = loadRayfieldLibrary()
 if rayfieldLoaded and Rayfield then
-	local uiBuildSuccess, uiBuildError = xpcall(function()
-		rayfieldInterface = Rayfield
+	rayfieldInterface = Rayfield
+	globalEnvironment.__BEANO_MM2_LAUNCHED = false
+	globalEnvironment.__BEANO_LAUNCH_MM2 = function()
+		if stopped or globalEnvironment.__BEANO_MM2_LAUNCHED then
+			return
+		end
+		globalEnvironment.__BEANO_MM2_LAUNCHED = true
+		local uiBuildSuccess, uiBuildError = xpcall(function()
 		mainWindow.Visible = false
-	local Window = Rayfield:CreateWindow({
-		Name = "Beano GUI",
-		Icon = "sparkles",
-		LoadingTitle = "Beano GUI",
-		LoadingSubtitle = "Rayfield interface",
-		ShowText = "Beano",
-		Theme = "Amethyst",
-		ToggleUIKeybind = "F8",
-		DisableRayfieldPrompts = true,
-		DisableBuildWarnings = true,
-		ConfigurationSaving = {
-			Enabled = true,
-			FolderName = "BeanoGUI",
-			FileName = "settings",
-		},
-		Discord = {
-			Enabled = false,
-			Invite = "",
-			RememberJoins = false,
-		},
-		KeySystem = false,
-	})
+	local Window = globalEnvironment.__BEANO_HUB_WINDOW
+	if not Window then
+		error("The Beano Hub window is unavailable.")
+	end
 	local MovementTab = Window:CreateTab("Movement", "person-standing")
 	MovementTab:CreateSection("Character movement")
 	local walkSpeedSlider = MovementTab:CreateSlider({
@@ -5561,18 +5552,81 @@ if rayfieldLoaded and Rayfield then
 		return tostring(message)
 	end)
 	if not uiBuildSuccess then
+		globalEnvironment.__BEANO_MM2_LAUNCHED = false
 		warn("Beano GUI startup error: " .. tostring(uiBuildError))
 		pcall(function()
-			Rayfield:Destroy()
-		end)
-		pcall(function()
 			StarterGui:SetCore("SendNotification", {
-				Title = "Beano GUI failed to start",
+				Title = "MM2 tools failed to load",
 				Text = tostring(uiBuildError):sub(1, 180),
 				Duration = 12,
 			})
 		end)
 	end
+	end
+	(function()
+		local hubBuildSuccess, hubBuildError = xpcall(function()
+			globalEnvironment.__BEANO_HUB_WINDOW = Rayfield:CreateWindow({
+				Name = "Beano Hub",
+				Icon = "sparkles",
+				LoadingTitle = "Beano Hub",
+				LoadingSubtitle = "Universal script hub",
+				ShowText = "Beano",
+				Theme = "Amethyst",
+				ToggleUIKeybind = "F8",
+				DisableRayfieldPrompts = true,
+				DisableBuildWarnings = true,
+				ConfigurationSaving = {
+					Enabled = true,
+					FolderName = "BeanoGUI",
+					FileName = "settings",
+				},
+				Discord = {
+					Enabled = false,
+					Invite = "",
+					RememberJoins = false,
+				},
+				KeySystem = false,
+			})
+			local GamesTab = globalEnvironment.__BEANO_HUB_WINDOW:CreateTab("Games", "gamepad-2")
+			GamesTab:CreateSection("Game selection")
+			GamesTab:CreateLabel("Choose a game to load its tools. More games can be added here later.", "layout-grid")
+			GamesTab:CreateButton({
+				Name = "MM2",
+				Callback = function()
+					if globalEnvironment.__BEANO_MM2_LAUNCHED then
+						Rayfield:Notify({
+							Title = "MM2 already loaded",
+							Content = "The MM2 tabs are already available in the sidebar.",
+							Duration = 4,
+							Image = "circle-check",
+						})
+						return
+					end
+					globalEnvironment.__BEANO_LAUNCH_MM2()
+					if globalEnvironment.__BEANO_MM2_LAUNCHED then
+						Rayfield:Notify({
+							Title = "MM2 loaded",
+							Content = "The MM2 tools are now available in the sidebar.",
+							Duration = 5,
+							Image = "gamepad-2",
+						})
+					end
+				end,
+			})
+		end, function(message)
+			return tostring(message)
+		end)
+		if not hubBuildSuccess then
+			warn("Beano Hub startup error: " .. tostring(hubBuildError))
+			pcall(function()
+				StarterGui:SetCore("SendNotification", {
+					Title = "Beano Hub failed to start",
+					Text = tostring(hubBuildError):sub(1, 180),
+					Duration = 12,
+				})
+			end)
+		end
+	end)()
 else
 	warn("Rayfield could not load: " .. tostring(rayfieldLoadError))
 	pcall(function()
