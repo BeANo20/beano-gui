@@ -15,6 +15,7 @@ local RAYFIELD_URLS = {
 	"https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua",
 }
 local MM2_URL = "https://raw.githubusercontent.com/BeANo20/beano-gui/main/mm2.lua"
+local WIZARD_TYCOON_URL = "https://raw.githubusercontent.com/BeANo20/beano-gui/main/wizard-tycoon.lua"
 
 local function formatError(message)
 	local text = tostring(message)
@@ -132,6 +133,37 @@ if not rayfieldLibrary then
 	return
 end
 
+local function launchGame(url, label)
+	if stopped or gameLaunching then
+		return
+	end
+	gameLaunching = true
+	hubNotification("Loading " .. label, "Downloading and checking the game module...", "loader-circle")
+	task.defer(function()
+		local separator = string.find(url, "?", 1, true) and "&" or "?"
+		local source, downloadError = fetchSource(url .. separator .. "v=" .. tostring(os.time()))
+		if not source then
+			gameLaunching = false
+			hubNotification(label .. " download failed", downloadError, "triangle-alert")
+			return
+		end
+		local chunk, compileError = compileSource(source, "Beano " .. label)
+		if not chunk then
+			gameLaunching = false
+			hubNotification(label .. " compile failed", compileError, "triangle-alert")
+			warn("Beano Hub: " .. tostring(compileError))
+			return
+		end
+		stopHub()
+		task.wait(0.1)
+		local success, runtimeError = xpcall(chunk, formatError)
+		if not success then
+			warn("Beano " .. label .. " runtime error: " .. tostring(runtimeError))
+			systemNotification(label .. " runtime error", runtimeError, 12)
+		end
+	end)
+end
+
 local uiSuccess, uiError = xpcall(function()
 	local Window = rayfieldLibrary:CreateWindow({
 		Name = "Beano Hub",
@@ -160,33 +192,13 @@ local uiSuccess, uiError = xpcall(function()
 	GamesTab:CreateButton({
 		Name = "MM2",
 		Callback = function()
-			if stopped or gameLaunching then
-				return
-			end
-			gameLaunching = true
-			hubNotification("Loading MM2", "Downloading and checking the MM2 module...", "loader-circle")
-			task.defer(function()
-				local source, downloadError = fetchSource(MM2_URL .. "?v=" .. tostring(os.time()))
-				if not source then
-					gameLaunching = false
-					hubNotification("MM2 download failed", downloadError, "triangle-alert")
-					return
-				end
-				local chunk, compileError = compileSource(source, "Beano MM2")
-				if not chunk then
-					gameLaunching = false
-					hubNotification("MM2 compile failed", compileError, "triangle-alert")
-					warn("Beano Hub: " .. tostring(compileError))
-					return
-				end
-				stopHub()
-				task.wait(0.1)
-				local success, runtimeError = xpcall(chunk, formatError)
-				if not success then
-					warn("Beano MM2 runtime error: " .. tostring(runtimeError))
-					systemNotification("MM2 runtime error", runtimeError, 12)
-				end
-			end)
+			launchGame(MM2_URL, "MM2")
+		end,
+	})
+	GamesTab:CreateButton({
+		Name = "2 Player Wizard Tycoon",
+		Callback = function()
+			launchGame(WIZARD_TYCOON_URL, "2 Player Wizard Tycoon")
 		end,
 	})
 	GamesTab:CreateLabel("More games can be added to this menu later.", "plus")
