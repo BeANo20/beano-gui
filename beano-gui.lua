@@ -3,6 +3,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local globalEnvironment = (getgenv and getgenv()) or _G
@@ -50,6 +52,7 @@ local trackedRoundStartedAt = 0
 local trackedSheriff = nil
 local trackedInnocents = {}
 local trackedMurderers = {}
+local trackedHeroes = {}
 local lastRoleToolSeenAt = 0
 local roleGracePeriod = 4
 local movementLockEnabled = true
@@ -63,6 +66,7 @@ local roleLineWidth = 0.12
 local gunFillTransparency = 0.2
 local gunPickupCooldown = 0.75
 local lastGunPickupAttempt = 0
+local gunPickupInProgress = false
 local tradeOverlayEnabled = true
 local tradeOverlayPosition = "Top"
 local lastTradeYourValue = 0
@@ -72,6 +76,15 @@ local selectedPlayer = nil
 local spectatingPlayer = nil
 local flingInProgress = false
 local interfaceReady = false
+local killAuraEnabled = false
+local killAuraRadius = 14
+local killAuraInterval = 0.15
+local coinAuraEnabled = false
+local coinAuraRadius = 30
+local coinAuraInterval = 0.2
+local coinAuraMaxPerTick = 8
+local coinCandidates = {}
+local coinCacheBuilt = false
 local function getHumanoid()
 	local character = player.Character
 	if not character then
@@ -179,12 +192,16 @@ local function stopScript()
 	droppedGunHighlight = nil
 	cachedDroppedGun = nil
 	gunScanRequested = false
+	gunPickupInProgress = false
 	if gameTradeSummary and gameTradeSummary.Parent then
 		gameTradeSummary:Destroy()
 	end
 	gameTradeSummary = nil
 	flingInProgress = false
 	spectatingPlayer = nil
+	killAuraEnabled = false
+	coinAuraEnabled = false
+	table.clear(coinCandidates)
 	pcall(function()
 		local camera = Workspace.CurrentCamera
 		local humanoid = getHumanoid()
@@ -197,6 +214,11 @@ local function stopScript()
 	end
 	if gui then
 		gui:Destroy()
+	end
+	for _, child in ipairs(playerGui:GetChildren()) do
+		if child.Name:sub(1, 13) == "BeanoMiniGame" then
+			child:Destroy()
+		end
 	end
 	tradeGui = nil
 	pcall(function()
@@ -2542,6 +2564,12 @@ local function playerHasTool(targetPlayer, toolName)
 		or (backpack and backpack:FindFirstChild(toolName) ~= nil)
 end
 local function readRole(targetPlayer)
+	if playerHasTool(targetPlayer, "Knife") then
+		return "Murderer"
+	end
+	if trackedRoundActive and trackedHeroes[targetPlayer] then
+		return "Hero"
+	end
 	local role = targetPlayer:GetAttribute("Role")
 		or targetPlayer:GetAttribute("TeamRole")
 		or targetPlayer:GetAttribute("PlayerRole")
@@ -2563,11 +2591,8 @@ local function readRole(targetPlayer)
 			return characterRoleValue.Value
 		end
 	end
-	local hasKnife = playerHasTool(targetPlayer, "Knife")
 	local hasGun = playerHasTool(targetPlayer, "Gun")
-	if hasKnife then
-		return "Murderer"
-	elseif hasGun then
+	if hasGun then
 		if trackedSheriff == targetPlayer then
 			return "Sheriff"
 		end
@@ -2596,6 +2621,7 @@ local function updateRoundRoleTracking()
 			trackedSheriff = nil
 			table.clear(trackedInnocents)
 			table.clear(trackedMurderers)
+			table.clear(trackedHeroes)
 		end
 		return
 	end
@@ -2606,12 +2632,19 @@ local function updateRoundRoleTracking()
 		trackedSheriff = nil
 		table.clear(trackedInnocents)
 		table.clear(trackedMurderers)
+		table.clear(trackedHeroes)
 	end
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
 		local hasKnife = playerHasTool(targetPlayer, "Knife")
 		local hasGun = playerHasTool(targetPlayer, "Gun")
 		if hasKnife then
 			trackedMurderers[targetPlayer] = true
+		elseif hasGun
+			and trackedSheriff
+			and targetPlayer ~= trackedSheriff
+			and trackedInnocents[targetPlayer]
+			and now - trackedRoundStartedAt > roleGracePeriod then
+			trackedHeroes[targetPlayer] = true
 		elseif not hasGun and not trackedMurderers[targetPlayer] then
 			trackedInnocents[targetPlayer] = true
 		elseif hasGun and not trackedSheriff and now - trackedRoundStartedAt <= roleGracePeriod then
@@ -2619,6 +2652,123 @@ local function updateRoundRoleTracking()
 		end
 	end
 end
+local function executorTouchFunction()
+	local environment = (getgenv and getgenv()) or _G
+	return type(environment.firetouchinterest) == "function" and environment.firetouchinterest or nil
+end
+local function runKillAura()
+	if not killAuraEnabled or not interfaceReady or flingInProgress then
+		return
+	end
+	local character = player.Character
+	local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+	local knife = character and character:FindFirstChild("Knife")
+	local knifeHandle = knife and (knife:FindFirstChild("Handle") or knife:FindFirstChildWhichIsA("BasePart"))
+	local touchFunction = executorTouchFunction()
+	if not localRoot or not knifeHandle or not touchFunction or readRole(player) ~= "Murderer" then
+		return
+	end
+	for _, targetPlayer in ipairs(Players:GetPlayers()) do
+		if targetPlayer ~= player then
+			local targetCharacter = targetPlayer.Character
+			local targetHumanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
+			local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+			if targetHumanoid and targetHumanoid.Health > 0 and targetRoot
+				and (targetRoot.Position - localRoot.Position).Magnitude <= killAuraRadius then
+				pcall(touchFunction, knifeHandle, targetRoot, 0)
+				pcall(touchFunction, knifeHandle, targetRoot, 1)
+			end
+		end
+	end
+end
+local function isCoinPart(instance)
+	if not instance:IsA("BasePart") then
+		return false
+	end
+	local normalizedName = string.lower(instance.Name):gsub("[%s_%-]", "")
+	local parentName = instance.Parent and string.lower(instance.Parent.Name):gsub("[%s_%-]", "") or ""
+	return normalizedName == "coin"
+		or normalizedName == "coinserver"
+		or normalizedName == "coinpart"
+		or parentName == "coincontainer"
+		or instance:GetAttribute("CoinID") ~= nil
+end
+local function addCoinCandidate(instance)
+	if isCoinPart(instance) then
+		coinCandidates[instance] = true
+	end
+end
+local function rebuildCoinCache()
+	if coinCacheBuilt then
+		return
+	end
+	coinCacheBuilt = true
+	table.clear(coinCandidates)
+	local descendants = Workspace:GetDescendants()
+	for index, instance in ipairs(descendants) do
+		addCoinCandidate(instance)
+		if index % 250 == 0 then
+			task.wait()
+		end
+	end
+end
+local function runCoinAura()
+	if not coinAuraEnabled or not interfaceReady or flingInProgress then
+		return
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local touchFunction = executorTouchFunction()
+	if not root or not touchFunction then
+		return
+	end
+	local collected = 0
+	for coinPart in pairs(coinCandidates) do
+		if not coinPart.Parent then
+			coinCandidates[coinPart] = nil
+		elseif (coinPart.Position - root.Position).Magnitude <= coinAuraRadius then
+			pcall(touchFunction, root, coinPart, 0)
+			pcall(touchFunction, root, coinPart, 1)
+			collected += 1
+			if collected >= coinAuraMaxPerTick then
+				break
+			end
+		end
+	end
+end
+table.insert(connections, Workspace.DescendantAdded:Connect(function(instance)
+	if coinAuraEnabled then
+		addCoinCandidate(instance)
+	end
+end))
+table.insert(connections, Workspace.DescendantRemoving:Connect(function(instance)
+	coinCandidates[instance] = nil
+end))
+local killAuraElapsed = 0
+local coinAuraElapsed = 0
+table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
+	if stopped then
+		return
+	end
+	if killAuraEnabled then
+		killAuraElapsed += deltaTime
+		if killAuraElapsed >= killAuraInterval then
+			killAuraElapsed = 0
+			runKillAura()
+		end
+	else
+		killAuraElapsed = 0
+	end
+	if coinAuraEnabled then
+		coinAuraElapsed += deltaTime
+		if coinAuraElapsed >= coinAuraInterval then
+			coinAuraElapsed = 0
+			runCoinAura()
+		end
+	else
+		coinAuraElapsed = 0
+	end
+end))
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
 	return normalizedName == "gun"
@@ -2698,7 +2848,7 @@ local function updateDroppedGunCham(droppedGun)
 	end
 end
 local function moveDroppedGunToPlayer(droppedGun)
-	if not autoPickupGunEnabled then
+	if not autoPickupGunEnabled or gunPickupInProgress or flingInProgress then
 		return
 	end
 	local now = os.clock()
@@ -2710,27 +2860,51 @@ local function moveDroppedGunToPlayer(droppedGun)
 	if not root or not droppedGun then
 		return
 	end
-	lastGunPickupAttempt = now
 	local gunPart = getGunPart(droppedGun)
 	if not gunPart then
 		return
 	end
-	local pickupCFrame = root.CFrame * CFrame.new(0, -2, 0)
-	if droppedGun:IsA("Model") then
-		droppedGun:PivotTo(pickupCFrame)
-	else
-		gunPart.CFrame = pickupCFrame
-	end
-	local prompt = droppedGun:FindFirstChildWhichIsA("ProximityPrompt", true)
-	if prompt and type(fireproximityprompt) == "function" then
-		pcall(fireproximityprompt, prompt)
-	end
-	if type(firetouchinterest) == "function" then
+	lastGunPickupAttempt = now
+	gunPickupInProgress = true
+	task.spawn(function()
+		local originalCFrame = root.CFrame
+		local originalLinearVelocity = root.AssemblyLinearVelocity
+		local originalAngularVelocity = root.AssemblyAngularVelocity
+		local prompt = droppedGun:FindFirstChildWhichIsA("ProximityPrompt", true)
+		local environment = (getgenv and getgenv()) or _G
+		local promptFunction = environment.fireproximityprompt
+		local touchFunction = environment.firetouchinterest
 		pcall(function()
-			firetouchinterest(root, gunPart, 0)
-			firetouchinterest(root, gunPart, 1)
+			for _ = 1, 6 do
+				if stopped or not autoPickupGunEnabled or not root.Parent or not gunPart.Parent or playerHasTool(player, "Gun") then
+					break
+				end
+				local pickupPosition = gunPart.CFrame * CFrame.new(0, 2.25, 0)
+				character:PivotTo(pickupPosition)
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+				if prompt and type(promptFunction) == "function" then
+					pcall(promptFunction, prompt)
+				end
+				if type(touchFunction) == "function" then
+					pcall(touchFunction, root, gunPart, 0)
+					pcall(touchFunction, root, gunPart, 1)
+				end
+				task.wait(0.06)
+			end
 		end)
-	end
+		if root.Parent then
+			root.CFrame = originalCFrame
+			root.AssemblyLinearVelocity = originalLinearVelocity
+			root.AssemblyAngularVelocity = originalAngularVelocity
+			task.wait()
+			if root.Parent then
+				root.CFrame = originalCFrame
+			end
+		end
+		gunPickupInProgress = false
+		gunScanRequested = true
+	end)
 end
 local function roleColor(role)
 	local normalizedRole = string.lower(role or "")
@@ -2979,6 +3153,23 @@ table.insert(connections, roleLinesButton.Activated:Connect(function()
 	updateRoleToggleButtons()
 	refreshRoleHighlights()
 end))
+local function playerMatchesRole(targetPlayer, roleName)
+	local detectedRole = string.lower(readRole(targetPlayer) or "")
+	return roleName == "Sheriff / Hero"
+		and (detectedRole:find("sheriff", 1, true) ~= nil
+			or detectedRole:find("detective", 1, true) ~= nil
+			or detectedRole:find("hero", 1, true) ~= nil)
+		or roleName == "Murderer"
+		and (detectedRole:find("murder", 1, true) ~= nil or detectedRole:find("killer", 1, true) ~= nil)
+end
+local function findPlayerByRole(roleName)
+	for _, targetPlayer in ipairs(Players:GetPlayers()) do
+		if targetPlayer ~= player and playerMatchesRole(targetPlayer, roleName) then
+			return targetPlayer
+		end
+	end
+	return nil
+end
 local function teleportToRole(roleName)
 	local localCharacter = player.Character
 	local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
@@ -2986,25 +3177,13 @@ local function teleportToRole(roleName)
 		roleHighlightStatus.Text = "Your character is not ready to teleport."
 		return
 	end
-	for _, targetPlayer in ipairs(Players:GetPlayers()) do
-		if targetPlayer ~= player then
-			local detectedRole = string.lower(readRole(targetPlayer) or "")
-			local matchesRole = roleName == "Sheriff / Hero"
-				and (detectedRole:find("sheriff", 1, true) ~= nil
-					or detectedRole:find("detective", 1, true) ~= nil
-					or detectedRole:find("hero", 1, true) ~= nil)
-				or roleName == "Murderer"
-				and (detectedRole:find("murder", 1, true) ~= nil or detectedRole:find("killer", 1, true) ~= nil)
-			if matchesRole then
-				local targetCharacter = targetPlayer.Character
-				local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
-				if targetRoot then
-					localRoot.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
-					roleHighlightStatus.Text = "Teleported to " .. targetPlayer.DisplayName .. " (" .. roleName .. ")"
-					return
-				end
-			end
-		end
+	local targetPlayer = findPlayerByRole(roleName)
+	local targetCharacter = targetPlayer and targetPlayer.Character
+	local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+	if targetRoot then
+		localRoot.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+		roleHighlightStatus.Text = "Teleported to " .. targetPlayer.DisplayName .. " (" .. roleName .. ")"
+		return
 	end
 	roleHighlightStatus.Text = "No active " .. roleName .. " was found."
 end
@@ -3035,6 +3214,7 @@ table.insert(connections, Players.PlayerRemoving:Connect(function(targetPlayer)
 	removeRoleHighlight(targetPlayer)
 	trackedInnocents[targetPlayer] = nil
 	trackedMurderers[targetPlayer] = nil
+	trackedHeroes[targetPlayer] = nil
 	if selectedPlayer == targetPlayer then
 		selectedPlayer = nil
 	end
@@ -3574,9 +3754,9 @@ if rayfieldLoaded and Rayfield then
 			stopScript()
 		end,
 	})
-	local PlayerTab = Window:CreateTab("Player", "users")
-	PlayerTab:CreateSection("Roles")
-	PlayerTab:CreateToggle({
+	local RolesTab = Window:CreateTab("Roles", "scan-eye")
+	RolesTab:CreateSection("Role ESP")
+	RolesTab:CreateToggle({
 		Name = "Role highlights",
 		CurrentValue = roleHighlightsEnabled,
 		Flag = "beano_role_highlights",
@@ -3586,7 +3766,7 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	PlayerTab:CreateToggle({
+	RolesTab:CreateToggle({
 		Name = "Character chams",
 		CurrentValue = roleChamsEnabled,
 		Flag = "beano_role_chams",
@@ -3596,7 +3776,7 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	PlayerTab:CreateToggle({
+	RolesTab:CreateToggle({
 		Name = "Role names",
 		CurrentValue = roleNamesEnabled,
 		Flag = "beano_role_names",
@@ -3606,7 +3786,7 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	local roleLinesToggle = PlayerTab:CreateToggle({
+	local roleLinesToggle = RolesTab:CreateToggle({
 		Name = "Role lines",
 		CurrentValue = roleLinesEnabled,
 		Flag = "beano_role_lines",
@@ -3616,19 +3796,21 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	PlayerTab:CreateButton({
+	RolesTab:CreateSection("Role teleport")
+	RolesTab:CreateButton({
 		Name = "Teleport to Sheriff / Hero",
 		Callback = function()
 			teleportToRole("Sheriff / Hero")
 		end,
 	})
-	PlayerTab:CreateButton({
+	RolesTab:CreateButton({
 		Name = "Teleport to Murderer",
 		Callback = function()
 			teleportToRole("Murderer")
 		end,
 	})
-	PlayerTab:CreateSection("Player actions")
+	local PlayersTab = Window:CreateTab("Players", "users")
+	PlayersTab:CreateSection("Selected player")
 	local playerOptionMap = {}
 	local lastPlayerListSignature = ""
 	local function buildPlayerOptions()
@@ -3650,7 +3832,7 @@ if rayfieldLoaded and Rayfield then
 	local initialPlayerOptions
 	initialPlayerOptions, playerOptionMap = buildPlayerOptions()
 	lastPlayerListSignature = table.concat(initialPlayerOptions, "\n")
-	local selectedPlayerDropdown = PlayerTab:CreateDropdown({
+	local selectedPlayerDropdown = PlayersTab:CreateDropdown({
 		Name = "Select player",
 		Options = initialPlayerOptions,
 		CurrentOption = {initialPlayerOptions[1]},
@@ -3676,7 +3858,7 @@ if rayfieldLoaded and Rayfield then
 		notifyPlayerAction("No player selected", "Choose a current player from the dropdown first.")
 		return nil
 	end
-	PlayerTab:CreateButton({
+	PlayersTab:CreateButton({
 		Name = "Teleport to selected player",
 		Callback = function()
 			local targetPlayer = validSelectedPlayer()
@@ -3689,7 +3871,7 @@ if rayfieldLoaded and Rayfield then
 			localRoot.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
 		end,
 	})
-	PlayerTab:CreateButton({
+	PlayersTab:CreateButton({
 		Name = "Spectate selected player",
 		Callback = function()
 			local targetPlayer = validSelectedPlayer()
@@ -3703,7 +3885,7 @@ if rayfieldLoaded and Rayfield then
 			camera.CameraSubject = targetHumanoid
 		end,
 	})
-	PlayerTab:CreateButton({
+	PlayersTab:CreateButton({
 		Name = "Stop spectating",
 		Callback = function()
 			spectatingPlayer = nil
@@ -3714,10 +3896,7 @@ if rayfieldLoaded and Rayfield then
 			end
 		end,
 	})
-	PlayerTab:CreateButton({
-		Name = "Fling selected player",
-		Callback = function()
-			local targetPlayer = validSelectedPlayer()
+	local function flingTargetPlayer(targetPlayer)
 			if not targetPlayer or flingInProgress then
 				if flingInProgress then
 					notifyPlayerAction("Fling already running", "Wait for the current action to restore your position.")
@@ -3825,6 +4004,34 @@ if rayfieldLoaded and Rayfield then
 					)
 				end
 			end)
+	end
+	PlayersTab:CreateButton({
+		Name = "Fling selected player",
+		Callback = function()
+			flingTargetPlayer(validSelectedPlayer())
+		end,
+	})
+	RolesTab:CreateSection("Role fling")
+	RolesTab:CreateButton({
+		Name = "Fling Sheriff / Hero",
+		Callback = function()
+			local targetPlayer = findPlayerByRole("Sheriff / Hero")
+			if not targetPlayer then
+				notifyPlayerAction("Role not found", "No active Sheriff or Hero was detected.")
+				return
+			end
+			flingTargetPlayer(targetPlayer)
+		end,
+	})
+	RolesTab:CreateButton({
+		Name = "Fling Murderer",
+		Callback = function()
+			local targetPlayer = findPlayerByRole("Murderer")
+			if not targetPlayer then
+				notifyPlayerAction("Role not found", "No active Murderer was detected.")
+				return
+			end
+			flingTargetPlayer(targetPlayer)
 		end,
 	})
 	local function refreshPlayerDropdown()
@@ -3851,7 +4058,8 @@ if rayfieldLoaded and Rayfield then
 			end
 		end
 	end)
-	PlayerTab:CreateToggle({
+	RolesTab:CreateSection("Dropped gun")
+	RolesTab:CreateToggle({
 		Name = "Auto pickup dropped gun",
 		CurrentValue = autoPickupGunEnabled,
 		Flag = "beano_auto_pickup_gun",
@@ -3860,7 +4068,7 @@ if rayfieldLoaded and Rayfield then
 			updateAutoPickupGunButton()
 		end,
 	})
-	PlayerTab:CreateToggle({
+	RolesTab:CreateToggle({
 		Name = "Dropped gun ESP",
 		CurrentValue = gunChamEnabled,
 		Flag = "beano_gun_esp",
@@ -3870,8 +4078,8 @@ if rayfieldLoaded and Rayfield then
 			updateDroppedGunCham(findDroppedGun())
 		end,
 	})
-	PlayerTab:CreateSection("Appearance")
-	PlayerTab:CreateSlider({
+	RolesTab:CreateSection("ESP appearance")
+	RolesTab:CreateSlider({
 		Name = "Role cham opacity",
 		Range = {0, 100},
 		Increment = 5,
@@ -3883,7 +4091,7 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	PlayerTab:CreateSlider({
+	RolesTab:CreateSlider({
 		Name = "Role line width",
 		Range = {0.03, 0.3},
 		Increment = 0.01,
@@ -3895,7 +4103,7 @@ if rayfieldLoaded and Rayfield then
 			refreshRoleHighlights()
 		end,
 	})
-	PlayerTab:CreateSlider({
+	RolesTab:CreateSlider({
 		Name = "Gun ESP opacity",
 		Range = {0, 100},
 		Increment = 5,
@@ -3907,6 +4115,99 @@ if rayfieldLoaded and Rayfield then
 			if droppedGunHighlight then
 				droppedGunHighlight.FillTransparency = gunFillTransparency
 			end
+		end,
+	})
+	local CombatTab = Window:CreateTab("Combat", "swords")
+	CombatTab:CreateSection("Murderer tools")
+	CombatTab:CreateToggle({
+		Name = "Knife kill aura",
+		CurrentValue = killAuraEnabled,
+		Flag = "beano_kill_aura",
+		Callback = function(value)
+			killAuraEnabled = value
+			if value and not executorTouchFunction() then
+				Rayfield:Notify({
+					Title = "Kill Aura unsupported",
+					Content = "This executor does not expose firetouchinterest.",
+					Duration = 6,
+					Image = "triangle-alert",
+				})
+			end
+		end,
+	})
+	CombatTab:CreateSlider({
+		Name = "Kill aura radius",
+		Range = {5, 30},
+		Increment = 1,
+		Suffix = " studs",
+		CurrentValue = killAuraRadius,
+		Flag = "beano_kill_aura_radius",
+		Callback = function(value)
+			killAuraRadius = value
+		end,
+	})
+	CombatTab:CreateSlider({
+		Name = "Kill aura interval",
+		Range = {0.1, 0.5},
+		Increment = 0.05,
+		Suffix = " sec",
+		CurrentValue = killAuraInterval,
+		Flag = "beano_kill_aura_interval",
+		Callback = function(value)
+			killAuraInterval = value
+		end,
+	})
+	local AutomationTab = Window:CreateTab("Automation", "orbit")
+	AutomationTab:CreateSection("Coin collection")
+	AutomationTab:CreateToggle({
+		Name = "Coin collection aura",
+		CurrentValue = coinAuraEnabled,
+		Flag = "beano_coin_aura",
+		Callback = function(value)
+			coinAuraEnabled = value
+			if value then
+				task.spawn(rebuildCoinCache)
+				if not executorTouchFunction() then
+					Rayfield:Notify({
+						Title = "Coin Aura unsupported",
+						Content = "This executor does not expose firetouchinterest.",
+						Duration = 6,
+						Image = "triangle-alert",
+					})
+				end
+			end
+		end,
+	})
+	AutomationTab:CreateSlider({
+		Name = "Coin aura radius",
+		Range = {5, 75},
+		Increment = 5,
+		Suffix = " studs",
+		CurrentValue = coinAuraRadius,
+		Flag = "beano_coin_aura_radius",
+		Callback = function(value)
+			coinAuraRadius = value
+		end,
+	})
+	AutomationTab:CreateSlider({
+		Name = "Coins per scan",
+		Range = {1, 15},
+		Increment = 1,
+		CurrentValue = coinAuraMaxPerTick,
+		Flag = "beano_coin_aura_limit",
+		Callback = function(value)
+			coinAuraMaxPerTick = value
+		end,
+	})
+	AutomationTab:CreateSlider({
+		Name = "Coin scan interval",
+		Range = {0.1, 1},
+		Increment = 0.1,
+		Suffix = " sec",
+		CurrentValue = coinAuraInterval,
+		Flag = "beano_coin_aura_interval",
+		Callback = function(value)
+			coinAuraInterval = value
 		end,
 	})
 	local TradeTab = Window:CreateTab("Trade", "scale")
@@ -3984,9 +4285,342 @@ if rayfieldLoaded and Rayfield then
 			updateRayfieldTradeResult()
 		end,
 	})
-	local MiscTab = Window:CreateTab("Misc", "gamepad-2")
-	MiscTab:CreateSection("Games")
-	MiscTab:CreateButton({
+	local function createMiniGameShell(title)
+		local existing = playerGui:FindFirstChild("BeanoMiniGame")
+		if existing then
+			existing:Destroy()
+		end
+		local miniGui = Instance.new("ScreenGui")
+		miniGui.Name = "BeanoMiniGame"
+		miniGui.ResetOnSpawn = false
+		miniGui.IgnoreGuiInset = false
+		miniGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		miniGui.DisplayOrder = 1000
+		miniGui.Parent = playerGui
+		local window = Instance.new("Frame")
+		window.Name = "Window"
+		window.AnchorPoint = Vector2.new(0.5, 0.5)
+		window.Position = UDim2.fromScale(0.5, 0.5)
+		window.Size = UDim2.fromOffset(410, 460)
+		window.BackgroundColor3 = Color3.fromRGB(29, 20, 38)
+		window.BorderSizePixel = 0
+		window.Parent = miniGui
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 12)
+		corner.Parent = window
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(164, 112, 190)
+		stroke.Transparency = 0.3
+		stroke.Thickness = 1.5
+		stroke.Parent = window
+		local header = Instance.new("Frame")
+		header.BackgroundColor3 = Color3.fromRGB(43, 28, 55)
+		header.BorderSizePixel = 0
+		header.Size = UDim2.new(1, 0, 0, 50)
+		header.Parent = window
+		local headerCorner = Instance.new("UICorner")
+		headerCorner.CornerRadius = UDim.new(0, 12)
+		headerCorner.Parent = header
+		local headerCover = Instance.new("Frame")
+		headerCover.BackgroundColor3 = header.BackgroundColor3
+		headerCover.BorderSizePixel = 0
+		headerCover.Position = UDim2.new(0, 0, 1, -12)
+		headerCover.Size = UDim2.new(1, 0, 0, 12)
+		headerCover.Parent = header
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.BackgroundTransparency = 1
+		titleLabel.Position = UDim2.fromOffset(18, 0)
+		titleLabel.Size = UDim2.new(1, -70, 1, 0)
+		titleLabel.Font = Enum.Font.GothamBold
+		titleLabel.Text = title
+		titleLabel.TextColor3 = Color3.fromRGB(245, 240, 250)
+		titleLabel.TextSize = 18
+		titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+		titleLabel.Parent = header
+		local closeButton = Instance.new("TextButton")
+		closeButton.AnchorPoint = Vector2.new(1, 0.5)
+		closeButton.Position = UDim2.new(1, -12, 0.5, 0)
+		closeButton.Size = UDim2.fromOffset(34, 34)
+		closeButton.BackgroundColor3 = Color3.fromRGB(72, 43, 85)
+		closeButton.BorderSizePixel = 0
+		closeButton.Font = Enum.Font.GothamBold
+		closeButton.Text = "X"
+		closeButton.TextColor3 = Color3.fromRGB(255, 225, 235)
+		closeButton.TextSize = 15
+		closeButton.Parent = header
+		local closeCorner = Instance.new("UICorner")
+		closeCorner.CornerRadius = UDim.new(0, 8)
+		closeCorner.Parent = closeButton
+		closeButton.Activated:Connect(function()
+			miniGui:Destroy()
+		end)
+		local body = Instance.new("Frame")
+		body.BackgroundTransparency = 1
+		body.Position = UDim2.fromOffset(18, 66)
+		body.Size = UDim2.new(1, -36, 1, -84)
+		body.Parent = window
+		return miniGui, body
+	end
+	local function makeGameLabel(parent, text, position, size, textSize)
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Position = position
+		label.Size = size
+		label.Font = Enum.Font.GothamMedium
+		label.Text = text
+		label.TextColor3 = Color3.fromRGB(230, 220, 238)
+		label.TextSize = textSize or 16
+		label.TextWrapped = true
+		label.Parent = parent
+		return label
+	end
+	local function makeGameButton(parent, text, position, size)
+		local button = Instance.new("TextButton")
+		button.BackgroundColor3 = Color3.fromRGB(75, 49, 91)
+		button.BorderSizePixel = 0
+		button.Position = position
+		button.Size = size
+		button.Font = Enum.Font.GothamBold
+		button.Text = text
+		button.TextColor3 = Color3.fromRGB(250, 245, 255)
+		button.TextSize = 17
+		button.AutoButtonColor = true
+		button.Parent = parent
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 9)
+		corner.Parent = button
+		return button
+	end
+	local function launchTicTacToe()
+		local miniGui, body = createMiniGameShell("Tic-Tac-Toe")
+		local statusLabel = makeGameLabel(body, "You are X - make the first move", UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 38), 16)
+		local gridFrame = Instance.new("Frame")
+		gridFrame.BackgroundTransparency = 1
+		gridFrame.AnchorPoint = Vector2.new(0.5, 0)
+		gridFrame.Position = UDim2.new(0.5, 0, 0, 52)
+		gridFrame.Size = UDim2.fromOffset(315, 315)
+		gridFrame.Parent = body
+		local layout = Instance.new("UIGridLayout")
+		layout.CellPadding = UDim2.fromOffset(7, 7)
+		layout.CellSize = UDim2.fromOffset(100, 100)
+		layout.Parent = gridFrame
+		local board = table.create(9, "")
+		local buttons = {}
+		local active = true
+		local combinations = {
+			{1, 2, 3}, {4, 5, 6}, {7, 8, 9},
+			{1, 4, 7}, {2, 5, 8}, {3, 6, 9},
+			{1, 5, 9}, {3, 5, 7},
+		}
+		local function getResult()
+			for _, combination in ipairs(combinations) do
+				local a, b, c = combination[1], combination[2], combination[3]
+				if board[a] ~= "" and board[a] == board[b] and board[b] == board[c] then
+					return board[a]
+				end
+			end
+			for index = 1, 9 do
+				if board[index] == "" then
+					return nil
+				end
+			end
+			return "Draw"
+		end
+		local function finishIfNeeded()
+			local result = getResult()
+			if not result then
+				return false
+			end
+			active = false
+			statusLabel.Text = result == "Draw" and "Draw! Close and reopen to play again."
+				or result == "X" and "You won!"
+				or "Computer won!"
+			return true
+		end
+		local function computerMove()
+			if not active or not miniGui.Parent then
+				return
+			end
+			local choices = {}
+			for index = 1, 9 do
+				if board[index] == "" then
+					table.insert(choices, index)
+				end
+			end
+			if #choices > 0 then
+				local index = choices[math.random(1, #choices)]
+				board[index] = "O"
+				buttons[index].Text = "O"
+				buttons[index].TextColor3 = Color3.fromRGB(255, 185, 130)
+			end
+			if not finishIfNeeded() then
+				statusLabel.Text = "Your turn"
+			end
+		end
+		for index = 1, 9 do
+			local button = makeGameButton(gridFrame, "", UDim2.new(), UDim2.new())
+			button.TextSize = 38
+			buttons[index] = button
+			button.Activated:Connect(function()
+				if not active or board[index] ~= "" then
+					return
+				end
+				board[index] = "X"
+				button.Text = "X"
+				button.TextColor3 = Color3.fromRGB(185, 135, 255)
+				if not finishIfNeeded() then
+					statusLabel.Text = "Computer is thinking..."
+					task.delay(0.3, computerMove)
+				end
+			end)
+		end
+	end
+	local function launchMemoryMatch()
+		local miniGui, body = createMiniGameShell("Memory Match")
+		local statusLabel = makeGameLabel(body, "Find all eight matching pairs", UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 36), 16)
+		local gridFrame = Instance.new("Frame")
+		gridFrame.BackgroundTransparency = 1
+		gridFrame.AnchorPoint = Vector2.new(0.5, 0)
+		gridFrame.Position = UDim2.new(0.5, 0, 0, 48)
+		gridFrame.Size = UDim2.fromOffset(328, 328)
+		gridFrame.Parent = body
+		local layout = Instance.new("UIGridLayout")
+		layout.CellPadding = UDim2.fromOffset(6, 6)
+		layout.CellSize = UDim2.fromOffset(77, 77)
+		layout.Parent = gridFrame
+		local cards = {"A", "A", "B", "B", "C", "C", "D", "D", "E", "E", "F", "F", "G", "G", "H", "H"}
+		for index = #cards, 2, -1 do
+			local other = math.random(1, index)
+			cards[index], cards[other] = cards[other], cards[index]
+		end
+		local buttons = {}
+		local matched = {}
+		local firstIndex = nil
+		local locked = false
+		local pairsFound = 0
+		for index = 1, 16 do
+			local button = makeGameButton(gridFrame, "?", UDim2.new(), UDim2.new())
+			button.TextSize = 25
+			buttons[index] = button
+			button.Activated:Connect(function()
+				if locked or matched[index] or firstIndex == index then
+					return
+				end
+				button.Text = cards[index]
+				button.BackgroundColor3 = Color3.fromRGB(118, 75, 143)
+				if not firstIndex then
+					firstIndex = index
+					return
+				end
+				local previousIndex = firstIndex
+				firstIndex = nil
+				if cards[previousIndex] == cards[index] then
+					matched[previousIndex] = true
+					matched[index] = true
+					pairsFound += 1
+					statusLabel.Text = ("Pairs found: %d / 8"):format(pairsFound)
+					if pairsFound == 8 then
+						statusLabel.Text = "You matched every pair!"
+					end
+				else
+					locked = true
+					task.delay(0.7, function()
+						if miniGui.Parent then
+							buttons[previousIndex].Text = "?"
+							buttons[index].Text = "?"
+							buttons[previousIndex].BackgroundColor3 = Color3.fromRGB(75, 49, 91)
+							buttons[index].BackgroundColor3 = Color3.fromRGB(75, 49, 91)
+						end
+						locked = false
+					end)
+				end
+			end)
+		end
+	end
+	local function launchReactionTest()
+		local miniGui, body = createMiniGameShell("Reaction Test")
+		local statusLabel = makeGameLabel(body, "Press Start, then wait for green", UDim2.fromOffset(0, 20), UDim2.new(1, 0, 0, 55), 18)
+		local reactionButton = makeGameButton(body, "START", UDim2.new(0.5, -145, 0, 110), UDim2.fromOffset(290, 190))
+		reactionButton.TextSize = 28
+		local waiting = false
+		local ready = false
+		local startedAt = 0
+		local roundToken = 0
+		reactionButton.Activated:Connect(function()
+			if ready then
+				local reactionMilliseconds = math.floor((os.clock() - startedAt) * 1000 + 0.5)
+				ready = false
+				waiting = false
+				reactionButton.Text = "PLAY AGAIN"
+				reactionButton.BackgroundColor3 = Color3.fromRGB(75, 49, 91)
+				statusLabel.Text = ("Reaction time: %d ms"):format(reactionMilliseconds)
+				return
+			end
+			if waiting then
+				roundToken += 1
+				waiting = false
+				reactionButton.Text = "TRY AGAIN"
+				reactionButton.BackgroundColor3 = Color3.fromRGB(135, 50, 65)
+				statusLabel.Text = "Too soon! Wait for the button to turn green."
+				return
+			end
+			waiting = true
+			roundToken += 1
+			local currentToken = roundToken
+			reactionButton.Text = "WAIT..."
+			reactionButton.BackgroundColor3 = Color3.fromRGB(135, 50, 65)
+			statusLabel.Text = "Get ready..."
+			task.delay(math.random(15, 40) / 10, function()
+				if miniGui.Parent and waiting and currentToken == roundToken then
+					ready = true
+					startedAt = os.clock()
+					reactionButton.Text = "CLICK!"
+					reactionButton.BackgroundColor3 = Color3.fromRGB(45, 160, 90)
+					statusLabel.Text = "Now!"
+				end
+			end)
+		end)
+	end
+	local function launchHigherLower()
+		local _, body = createMiniGameShell("Higher or Lower")
+		local score = 0
+		local currentValue = math.random(1, 99)
+		local title = makeGameLabel(body, "Will the next number be higher or lower?", UDim2.fromOffset(0, 12), UDim2.new(1, 0, 0, 52), 17)
+		local numberLabel = makeGameLabel(body, tostring(currentValue), UDim2.fromOffset(0, 78), UDim2.new(1, 0, 0, 110), 58)
+		numberLabel.Font = Enum.Font.GothamBold
+		numberLabel.TextColor3 = Color3.fromRGB(205, 155, 255)
+		local scoreLabel = makeGameLabel(body, "Score: 0", UDim2.fromOffset(0, 196), UDim2.new(1, 0, 0, 34), 16)
+		local higherButton = makeGameButton(body, "HIGHER", UDim2.new(0, 0, 0, 250), UDim2.new(0.48, 0, 0, 72))
+		local lowerButton = makeGameButton(body, "LOWER", UDim2.new(0.52, 0, 0, 250), UDim2.new(0.48, 0, 0, 72))
+		local function makeGuess(guessHigher)
+			local nextValue
+			repeat
+				nextValue = math.random(1, 99)
+			until nextValue ~= currentValue
+			local correct = guessHigher and nextValue > currentValue or not guessHigher and nextValue < currentValue
+			if correct then
+				score += 1
+				title.Text = "Correct! Keep going."
+				title.TextColor3 = Color3.fromRGB(150, 255, 180)
+			else
+				score = 0
+				title.Text = "Wrong! Your score was reset."
+				title.TextColor3 = Color3.fromRGB(255, 160, 170)
+			end
+			currentValue = nextValue
+			numberLabel.Text = tostring(currentValue)
+			scoreLabel.Text = ("Score: %d"):format(score)
+		end
+		higherButton.Activated:Connect(function()
+			makeGuess(true)
+		end)
+		lowerButton.Activated:Connect(function()
+			makeGuess(false)
+		end)
+	end
+	local ArcadeTab = Window:CreateTab("Arcade", "gamepad-2")
+	ArcadeTab:CreateSection("Mini games")
+	ArcadeTab:CreateButton({
 		Name = "Launch Minesweeper",
 		Callback = function()
 			local success, launchError = pcall(function()
@@ -4005,6 +4639,22 @@ if rayfieldLoaded and Rayfield then
 				Image = success and "gamepad-2" or "triangle-alert",
 			})
 		end,
+	})
+	ArcadeTab:CreateButton({
+		Name = "Play Tic-Tac-Toe",
+		Callback = launchTicTacToe,
+	})
+	ArcadeTab:CreateButton({
+		Name = "Play Memory Match",
+		Callback = launchMemoryMatch,
+	})
+	ArcadeTab:CreateButton({
+		Name = "Play Reaction Test",
+		Callback = launchReactionTest,
+	})
+	ArcadeTab:CreateButton({
+		Name = "Play Higher or Lower",
+		Callback = launchHigherLower,
 	})
 	local SettingsTab = Window:CreateTab("Settings", "settings")
 	SettingsTab:CreateSection("Interface")
@@ -4136,6 +4786,269 @@ if rayfieldLoaded and Rayfield then
 			})
 		end,
 	})
+	SettingsTab:CreateSection("Configurations")
+	SettingsTab:CreateLabel("Profiles save every supported Rayfield control. The default settings profile also saves automatically.", "save")
+	local selectedConfigName = "default"
+	SettingsTab:CreateInput({
+		Name = "Config profile name",
+		CurrentValue = selectedConfigName,
+		PlaceholderText = "default",
+		RemoveTextAfterFocusLost = false,
+		Callback = function(text)
+			local cleaned = tostring(text or "")
+				:gsub("[^%w_%- ]", "")
+				:gsub("^%s+", "")
+				:gsub("%s+$", "")
+				:sub(1, 32)
+			selectedConfigName = cleaned ~= "" and cleaned or "default"
+		end,
+	})
+	local function configPath()
+		return "BeanoGUI/Profiles/" .. selectedConfigName .. ".json"
+	end
+	local function ensureConfigFolder()
+		if type(isfolder) ~= "function" or type(makefolder) ~= "function" then
+			return false, "This executor does not provide filesystem folder functions."
+		end
+		if not isfolder("BeanoGUI") then
+			makefolder("BeanoGUI")
+		end
+		if not isfolder("BeanoGUI/Profiles") then
+			makefolder("BeanoGUI/Profiles")
+		end
+		return true
+	end
+	local function saveNamedConfiguration()
+		if type(writefile) ~= "function" then
+			return false, "This executor does not support writefile."
+		end
+		local folderReady, folderError = ensureConfigFolder()
+		if not folderReady then
+			return false, folderError
+		end
+		local data = {}
+		for flagName, flag in pairs(Rayfield.Flags) do
+			if flag.Type == "ColorPicker" and flag.Color then
+				data[flagName] = {
+					R = math.floor(flag.Color.R * 255 + 0.5),
+					G = math.floor(flag.Color.G * 255 + 0.5),
+					B = math.floor(flag.Color.B * 255 + 0.5),
+				}
+			elseif typeof(flag.CurrentValue) == "boolean" then
+				data[flagName] = flag.CurrentValue
+			else
+				data[flagName] = flag.CurrentValue or flag.CurrentKeybind or flag.CurrentOption
+			end
+		end
+		local encoded = HttpService:JSONEncode(data)
+		writefile(configPath(), encoded)
+		return true, ("Saved profile '%s'."):format(selectedConfigName)
+	end
+	local function loadNamedConfiguration()
+		if type(isfile) ~= "function" or type(readfile) ~= "function" then
+			return false, "This executor does not support config file reading."
+		end
+		local path = configPath()
+		if not isfile(path) then
+			return false, ("Profile '%s' does not exist."):format(selectedConfigName)
+		end
+		local decoded = HttpService:JSONDecode(readfile(path))
+		local applied = 0
+		for flagName, value in pairs(decoded) do
+			local flag = Rayfield.Flags[flagName]
+			if flag and type(flag.Set) == "function" then
+				if flag.Type == "ColorPicker" and type(value) == "table" then
+					flag:Set(Color3.fromRGB(value.R or 0, value.G or 0, value.B or 0))
+				else
+					flag:Set(value)
+				end
+				applied += 1
+			end
+		end
+		return true, ("Loaded '%s' (%d settings)."):format(selectedConfigName, applied)
+	end
+	local function notifyConfigResult(success, message)
+		Rayfield:Notify({
+			Title = success and "Configuration ready" or "Configuration error",
+			Content = tostring(message),
+			Duration = 6,
+			Image = success and "save" or "triangle-alert",
+		})
+	end
+	SettingsTab:CreateButton({
+		Name = "Save selected config",
+		Callback = function()
+			local success, result, detail = pcall(saveNamedConfiguration)
+			if success then
+				notifyConfigResult(result, detail)
+			else
+				notifyConfigResult(false, result)
+			end
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Load selected config",
+		Callback = function()
+			local success, result, detail = pcall(loadNamedConfiguration)
+			if success then
+				notifyConfigResult(result, detail)
+			else
+				notifyConfigResult(false, result)
+			end
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Delete selected config",
+		Callback = function()
+			local callSuccess, deleteSuccess, deleteMessage = pcall(function()
+				if type(isfile) ~= "function" or type(delfile) ~= "function" then
+					return false, "This executor does not support deleting config files."
+				end
+				local path = configPath()
+				if not isfile(path) then
+					return false, ("Profile '%s' does not exist."):format(selectedConfigName)
+				end
+				delfile(path)
+				return true, ("Deleted profile '%s'."):format(selectedConfigName)
+			end)
+			if callSuccess then
+				notifyConfigResult(deleteSuccess, deleteMessage)
+			else
+				notifyConfigResult(false, deleteSuccess)
+			end
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Reload automatic settings config",
+		Callback = function()
+			local success, loadError = pcall(function()
+				Rayfield:LoadConfiguration()
+			end)
+			notifyConfigResult(success, success and "Reloaded BeanoGUI/settings.rfld." or loadError)
+		end,
+	})
+	SettingsTab:CreateSection("Server utilities")
+	local autoReexecuteEnabled = false
+	local loaderUrl = "https://raw.githubusercontent.com/BeANo20/beano-gui/main/beano-gui.lua"
+	local queuedLoader = 'loadstring(game:HttpGet("' .. loaderUrl .. '?teleport=" .. tostring(os.time())))()'
+	local function getTeleportQueue()
+		local environment = (getgenv and getgenv()) or _G
+		if type(environment.queue_on_teleport) == "function" then
+			return environment.queue_on_teleport
+		end
+		if type(environment.syn) == "table" and type(environment.syn.queue_on_teleport) == "function" then
+			return environment.syn.queue_on_teleport
+		end
+		if type(environment.fluxus) == "table" and type(environment.fluxus.queue_on_teleport) == "function" then
+			return environment.fluxus.queue_on_teleport
+		end
+		return nil
+	end
+	local function queueReexecute()
+		if not autoReexecuteEnabled then
+			return true
+		end
+		local queueFunction = getTeleportQueue()
+		if not queueFunction then
+			return false, "Your executor does not support queue_on_teleport."
+		end
+		local success, queueError = pcall(queueFunction, queuedLoader)
+		return success, queueError
+	end
+	SettingsTab:CreateToggle({
+		Name = "Auto re-execute after teleport",
+		CurrentValue = false,
+		Flag = "beano_auto_reexecute",
+		Callback = function(value)
+			autoReexecuteEnabled = value
+			if value then
+				local success, queueError = queueReexecute()
+				Rayfield:Notify({
+					Title = success and "Auto re-execute ready" or "Auto re-execute unsupported",
+					Content = success and "Beano GUI is queued for the next teleport."
+						or tostring(queueError),
+					Duration = 6,
+					Image = success and "repeat-2" or "triangle-alert",
+				})
+			end
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Rejoin current server",
+		Callback = function()
+			local queued, queueError = queueReexecute()
+			if not queued then
+				Rayfield:Notify({Title = "Re-execute warning", Content = tostring(queueError), Duration = 5, Image = "triangle-alert"})
+			end
+			local success, teleportError = pcall(function()
+				if game.JobId ~= "" then
+					TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+				else
+					TeleportService:Teleport(game.PlaceId, player)
+				end
+			end)
+			if not success then
+				Rayfield:Notify({Title = "Rejoin failed", Content = tostring(teleportError), Duration = 6, Image = "triangle-alert"})
+			end
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Server hop",
+		Callback = function()
+			Rayfield:Notify({Title = "Finding server", Content = "Searching for an available public server...", Duration = 4, Image = "server"})
+			task.spawn(function()
+				local success, hopError = pcall(function()
+					local cursor = nil
+					local destination = nil
+					for _ = 1, 3 do
+						local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
+						if cursor then
+							url ..= "&cursor=" .. HttpService:UrlEncode(cursor)
+						end
+						local response = HttpService:JSONDecode(game:HttpGet(url))
+						for _, server in ipairs(response.data or {}) do
+							if server.id ~= game.JobId and server.playing < server.maxPlayers then
+								destination = server.id
+								break
+							end
+						end
+						if destination then
+							break
+						end
+						cursor = response.nextPageCursor
+						if not cursor then
+							break
+						end
+					end
+					if not destination then
+						error("No open public server was found.")
+					end
+					local queued, queueError = queueReexecute()
+					if not queued then
+						warn("Beano GUI auto re-execute: " .. tostring(queueError))
+					end
+					TeleportService:TeleportToPlaceInstance(game.PlaceId, destination, player)
+				end)
+				if not success then
+					Rayfield:Notify({Title = "Server hop failed", Content = tostring(hopError):sub(1, 180), Duration = 7, Image = "triangle-alert"})
+				end
+			end)
+		end,
+	})
+	SettingsTab:CreateButton({
+		Name = "Copy current loader",
+		Callback = function()
+			local environment = (getgenv and getgenv()) or _G
+			local clipboardFunction = environment.setclipboard or environment.toclipboard
+			if type(clipboardFunction) ~= "function" then
+				Rayfield:Notify({Title = "Clipboard unsupported", Content = "Your executor does not expose a clipboard function.", Duration = 5, Image = "triangle-alert"})
+				return
+			end
+			clipboardFunction('loadstring(game:HttpGet("' .. loaderUrl .. '"))()')
+			Rayfield:Notify({Title = "Loader copied", Content = "The latest Beano GUI loader is on your clipboard.", Duration = 5, Image = "clipboard-check"})
+		end,
+	})
+	SettingsTab:CreateSection("Stop script")
 	SettingsTab:CreateLabel("Kill disconnects every managed event and removes all script-created visuals.", "circle-stop")
 	SettingsTab:CreateButton({
 		Name = "Kill script completely",
