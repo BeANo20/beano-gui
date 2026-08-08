@@ -9,7 +9,7 @@ local environment = (getgenv and getgenv()) or _G
 local rayfieldLibrary = nil
 local stopped = false
 local gameLaunching = false
-local HUB_VERSION = "1.0.1"
+local HUB_VERSION = "1.0.2"
 
 local RAYFIELD_URLS = {
 	"https://sirius.menu/rayfield",
