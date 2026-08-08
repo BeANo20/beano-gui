@@ -86,7 +86,7 @@ local coinAuraInterval = 0.2
 local coinAuraMaxPerTick = 8
 local coinCandidates = {}
 local coinCacheBuilt = false
-local silentState = {
+local hhhhState = {
 	Enabled = false,
 	TeamCheck = false,
 	VisibleCheck = false,
@@ -98,8 +98,13 @@ local silentState = {
 	Prediction = false,
 	PredictionAmount = 0.165,
 	HitChance = 100,
+	ShootMurdererEnabled = false,
+	ShootCooldown = 1,
+	ShootBusy = false,
+	LastShotAt = 0,
+	ForcedTarget = nil,
 }
-local silentDrawings = {}
+local hhhhDrawings = {}
 local function getHumanoid()
 	local character = player.Character
 	if not character then
@@ -217,16 +222,19 @@ local function stopScript()
 	killAuraEnabled = false
 	coinAuraEnabled = false
 	table.clear(coinCandidates)
-	silentState.Enabled = false
-	if globalEnvironment.__BEANO_silent_STATE == silentState then
-		globalEnvironment.__BEANO_silent_STATE = nil
+	hhhhState.Enabled = false
+	hhhhState.ShootMurdererEnabled = false
+	hhhhState.ShootBusy = false
+	hhhhState.ForcedTarget = nil
+	if globalEnvironment.__BEANO_HHHH_STATE == hhhhState then
+		globalEnvironment.__BEANO_HHHH_STATE = nil
 	end
-	for _, drawing in pairs(silentDrawings) do
+	for _, drawing in pairs(hhhhDrawings) do
 		pcall(function()
 			drawing:Remove()
 		end)
 	end
-	table.clear(silentDrawings)
+	table.clear(hhhhDrawings)
 	pcall(function()
 		local camera = Workspace.CurrentCamera
 		local humanoid = getHumanoid()
@@ -2794,15 +2802,15 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		coinAuraElapsed = 0
 	end
 end))
-local silentMouse = player:GetMouse()
-local function silentTargetPosition(targetPart, state)
+local hhhhMouse = player:GetMouse()
+local function hhhhTargetPosition(targetPart, state)
 	local position = targetPart.Position
 	if state.Prediction then
 		position += targetPart.AssemblyLinearVelocity * state.PredictionAmount
 	end
 	return position
 end
-local function silentIsVisible(targetPart)
+local function hhhhIsVisible(targetPart)
 	local camera = Workspace.CurrentCamera
 	local localCharacter = player.Character
 	local targetCharacter = targetPart and targetPart:FindFirstAncestorOfClass("Model")
@@ -2812,12 +2820,22 @@ local function silentIsVisible(targetPart)
 	local obscuring = camera:GetPartsObscuringTarget({targetPart.Position}, {localCharacter, targetCharacter})
 	return #obscuring == 0
 end
-local function silentClosestTarget()
-	local state = globalEnvironment.__BEANO_silent_STATE
+local function hhhhClosestTarget()
+	local state = globalEnvironment.__BEANO_HHHH_STATE
 	local camera = Workspace.CurrentCamera
 	if not state or not state.Enabled or not camera then
 		return nil
 	end
+	local forcedTarget = state.ForcedTarget
+	if forcedTarget and forcedTarget.Parent then
+		local forcedCharacter = forcedTarget:FindFirstAncestorOfClass("Model")
+		local forcedHumanoid = forcedCharacter and forcedCharacter:FindFirstChildOfClass("Humanoid")
+		if forcedHumanoid and forcedHumanoid.Health > 0
+			and (not state.VisibleCheck or hhhhIsVisible(forcedTarget)) then
+			return forcedTarget
+		end
+	end
+	state.ForcedTarget = nil
 	local mousePosition = UserInputService:GetMouseLocation()
 	local closestPart = nil
 	local closestDistance = state.FOVRadius
@@ -2831,8 +2849,8 @@ local function silentClosestTarget()
 					targetName = math.random(1, 2) == 1 and "Head" or "HumanoidRootPart"
 				end
 				local targetPart = character:FindFirstChild(targetName) or character:FindFirstChild("HumanoidRootPart")
-				if targetPart and (not state.VisibleCheck or silentIsVisible(targetPart)) then
-					local viewport, onScreen = camera:WorldToViewportPoint(silentTargetPosition(targetPart, state))
+				if targetPart and (not state.VisibleCheck or hhhhIsVisible(targetPart)) then
+					local viewport, onScreen = camera:WorldToViewportPoint(hhhhTargetPosition(targetPart, state))
 					if onScreen then
 						local distance = (mousePosition - Vector2.new(viewport.X, viewport.Y)).Magnitude
 						if distance <= closestDistance then
@@ -2846,8 +2864,8 @@ local function silentClosestTarget()
 	end
 	return closestPart
 end
-local function ensuresilentDrawings()
-	if silentDrawings.FOV and silentDrawings.Target then
+local function ensureHHHHDrawings()
+	if hhhhDrawings.FOV and hhhhDrawings.Target then
 		return true
 	end
 	local drawingApi = globalEnvironment.Drawing or Drawing
@@ -2859,7 +2877,7 @@ local function ensuresilentDrawings()
 		fov.Visible = false
 		fov.Thickness = 1.5
 		fov.NumSides = 80
-		fov.Radius = silentState.FOVRadius
+		fov.Radius = hhhhState.FOVRadius
 		fov.Filled = false
 		fov.ZIndex = 999
 		fov.Transparency = 1
@@ -2871,66 +2889,66 @@ local function ensuresilentDrawings()
 		target.Thickness = 2
 		target.Size = Vector2.new(20, 20)
 		target.Filled = false
-		silentDrawings.FOV = fov
-		silentDrawings.Target = target
+		hhhhDrawings.FOV = fov
+		hhhhDrawings.Target = target
 	end)
 	return success
 end
-local function hidesilentDrawings()
-	for _, drawing in pairs(silentDrawings) do
+local function hideHHHHDrawings()
+	for _, drawing in pairs(hhhhDrawings) do
 		pcall(function()
 			drawing.Visible = false
 		end)
 	end
 end
-local function updatesilentVisuals()
-	if not silentState.Enabled then
-		hidesilentDrawings()
+local function updateHHHHVisuals()
+	if not hhhhState.Enabled then
+		hideHHHHDrawings()
 		return
 	end
-	if not ensuresilentDrawings() then
+	if not ensureHHHHDrawings() then
 		return
 	end
 	local mousePosition = UserInputService:GetMouseLocation()
-	local fov = silentDrawings.FOV
+	local fov = hhhhDrawings.FOV
 	fov.Position = mousePosition
-	fov.Radius = silentState.FOVRadius
-	fov.Visible = silentState.FOVVisible
-	local marker = silentDrawings.Target
-	if not silentState.ShowTarget then
+	fov.Radius = hhhhState.FOVRadius
+	fov.Visible = hhhhState.FOVVisible
+	local marker = hhhhDrawings.Target
+	if not hhhhState.ShowTarget then
 		marker.Visible = false
 		return
 	end
-	local targetPart = silentClosestTarget()
+	local targetPart = hhhhClosestTarget()
 	local camera = Workspace.CurrentCamera
 	if targetPart and camera then
-		local viewport, onScreen = camera:WorldToViewportPoint(silentTargetPosition(targetPart, silentState))
+		local viewport, onScreen = camera:WorldToViewportPoint(hhhhTargetPosition(targetPart, hhhhState))
 		marker.Visible = onScreen
 		marker.Position = Vector2.new(viewport.X - 10, viewport.Y - 10)
 	else
 		marker.Visible = false
 	end
 end
-silentState.Mouse = silentMouse
-silentState.GetTarget = silentClosestTarget
-silentState.GetTargetPosition = silentTargetPosition
-globalEnvironment.__BEANO_silent_STATE = silentState
-local silentHookMetamethod = globalEnvironment.hookmetamethod
-local silentNewClosure = globalEnvironment.newcclosure or function(callback)
+hhhhState.Mouse = hhhhMouse
+hhhhState.GetTarget = hhhhClosestTarget
+hhhhState.GetTargetPosition = hhhhTargetPosition
+globalEnvironment.__BEANO_HHHH_STATE = hhhhState
+local hhhhHookMetamethod = globalEnvironment.hookmetamethod
+local hhhhNewClosure = globalEnvironment.newcclosure or function(callback)
 	return callback
 end
-local silentCheckCaller = globalEnvironment.checkcaller
-local silentGetNamecallMethod = globalEnvironment.getnamecallmethod
-if type(silentHookMetamethod) == "function"
-	and type(silentCheckCaller) == "function"
-	and type(silentGetNamecallMethod) == "function"
-	and not globalEnvironment.__BEANO_silent_NAMECALL_HOOKED then
+local hhhhCheckCaller = globalEnvironment.checkcaller
+local hhhhGetNamecallMethod = globalEnvironment.getnamecallmethod
+if type(hhhhHookMetamethod) == "function"
+	and type(hhhhCheckCaller) == "function"
+	and type(hhhhGetNamecallMethod) == "function"
+	and not globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED then
 	local hookSuccess = pcall(function()
 		local oldNamecall
-		oldNamecall = silentHookMetamethod(game, "__namecall", silentNewClosure(function(self, ...)
-			local state = globalEnvironment.__BEANO_silent_STATE
-			local method = silentGetNamecallMethod()
-			if state and state.Enabled and self == Workspace and not silentCheckCaller()
+		oldNamecall = hhhhHookMetamethod(game, "__namecall", hhhhNewClosure(function(self, ...)
+			local state = globalEnvironment.__BEANO_HHHH_STATE
+			local method = hhhhGetNamecallMethod()
+			if state and state.Enabled and self == Workspace and not hhhhCheckCaller()
 				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
 				local targetPart = state.GetTarget and state.GetTarget()
 				if targetPart then
@@ -2959,18 +2977,18 @@ if type(silentHookMetamethod) == "function"
 		end))
 	end)
 	if hookSuccess then
-		globalEnvironment.__BEANO_silent_NAMECALL_HOOKED = true
+		globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED = true
 	end
 end
-if type(silentHookMetamethod) == "function"
-	and type(silentCheckCaller) == "function"
-	and not globalEnvironment.__BEANO_silent_INDEX_HOOKED then
+if type(hhhhHookMetamethod) == "function"
+	and type(hhhhCheckCaller) == "function"
+	and not globalEnvironment.__BEANO_HHHH_INDEX_HOOKED then
 	local hookSuccess = pcall(function()
 		local oldIndex
-		oldIndex = silentHookMetamethod(game, "__index", silentNewClosure(function(self, key)
-			local state = globalEnvironment.__BEANO_silent_STATE
+		oldIndex = hhhhHookMetamethod(game, "__index", hhhhNewClosure(function(self, key)
+			local state = globalEnvironment.__BEANO_HHHH_STATE
 			if state and state.Enabled and state.Method == "Mouse.Hit/Target"
-				and self == state.Mouse and not silentCheckCaller()
+				and self == state.Mouse and not hhhhCheckCaller()
 				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
 				local targetPart = state.GetTarget and state.GetTarget()
 				if targetPart then
@@ -2986,12 +3004,12 @@ if type(silentHookMetamethod) == "function"
 		end))
 	end)
 	if hookSuccess then
-		globalEnvironment.__BEANO_silent_INDEX_HOOKED = true
+		globalEnvironment.__BEANO_HHHH_INDEX_HOOKED = true
 	end
 end
-silentState.HookSupported = globalEnvironment.__BEANO_silent_NAMECALL_HOOKED == true
-	and globalEnvironment.__BEANO_silent_INDEX_HOOKED == true
-table.insert(connections, RunService.RenderStepped:Connect(updatesilentVisuals))
+hhhhState.HookSupported = globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED == true
+	and globalEnvironment.__BEANO_HHHH_INDEX_HOOKED == true
+table.insert(connections, RunService.RenderStepped:Connect(updateHHHHVisuals))
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
 	return normalizedName == "gun"
@@ -3392,6 +3410,125 @@ local function findPlayerByRole(roleName)
 		end
 	end
 	return nil
+end
+hhhhState.FindGun = function()
+	local character = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	local equippedGun = character and character:FindFirstChild("Gun")
+	if equippedGun and equippedGun:IsA("Tool") then
+		return equippedGun, true
+	end
+	local storedGun = backpack and backpack:FindFirstChild("Gun")
+	if storedGun and storedGun:IsA("Tool") then
+		return storedGun, false
+	end
+	return nil, false
+end
+hhhhState.FindGunRemote = function(gun)
+	local knifeLocal = gun and gun:FindFirstChild("KnifeLocal", true)
+	local createBeam = knifeLocal and knifeLocal:FindFirstChild("CreateBeam", true)
+	local knownRemote = createBeam and createBeam:FindFirstChild("RemoteFunction", true)
+	if knownRemote and knownRemote:IsA("RemoteFunction") then
+		return knownRemote
+	end
+	if not gun then
+		return nil
+	end
+	for _, descendant in ipairs(gun:GetDescendants()) do
+		if descendant:IsA("RemoteFunction") then
+			local beamAncestor = descendant:FindFirstAncestor("CreateBeam")
+			if beamAncestor or descendant.Name == "RemoteFunction" then
+				return descendant
+			end
+		end
+	end
+	return nil
+end
+hhhhState.GetMurdererTarget = function()
+	updateRoundRoleTracking()
+	local murderer = findPlayerByRole("Murderer")
+	local character = murderer and murderer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return nil, nil
+	end
+	local targetName = hhhhState.TargetPart
+	if targetName == "Random" then
+		targetName = math.random(1, 2) == 1 and "Head" or "HumanoidRootPart"
+	end
+	local targetPart = character:FindFirstChild(targetName) or character:FindFirstChild("HumanoidRootPart")
+	return murderer, targetPart
+end
+hhhhState.ShootMurderer = function()
+	if stopped or not hhhhState.ShootMurdererEnabled then
+		return false, "The HHHH shoot hotkey is disabled."
+	end
+	local now = os.clock()
+	if hhhhState.ShootBusy or now - hhhhState.LastShotAt < hhhhState.ShootCooldown then
+		return false, nil
+	end
+	local gun, alreadyEquipped = hhhhState.FindGun()
+	if not gun then
+		return false, "You do not currently have the gun."
+	end
+	local murderer, targetPart = hhhhState.GetMurdererTarget()
+	if not murderer or not targetPart then
+		return false, "No living murderer was detected."
+	end
+	if hhhhState.VisibleCheck and not hhhhIsVisible(targetPart) then
+		return false, "The murderer is blocked by a wall."
+	end
+	hhhhState.ShootBusy = true
+	hhhhState.LastShotAt = now
+	task.delay(hhhhState.ShootCooldown, function()
+		hhhhState.ShootBusy = false
+	end)
+	task.spawn(function()
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not alreadyEquipped and humanoid and gun.Parent then
+			pcall(function()
+				humanoid:EquipTool(gun)
+			end)
+			task.wait(0.08)
+		end
+		if stopped or not gun.Parent then
+			return
+		end
+		local _, currentTargetPart = hhhhState.GetMurdererTarget()
+		if not currentTargetPart then
+			return
+		end
+		local targetPosition = hhhhTargetPosition(currentTargetPart, hhhhState)
+		local gunRemote = hhhhState.FindGunRemote(gun)
+		if gunRemote then
+			local success, invokeError = pcall(function()
+				gunRemote:InvokeServer(1, targetPosition, "AH2")
+			end)
+			if not success then
+				warn("Beano GUI HHHH gun shot failed: " .. tostring(invokeError))
+			end
+			return
+		end
+
+		-- Fallback for gun versions that fire through Tool.Activated instead of the known MM2 remote.
+		local previousEnabled = hhhhState.Enabled
+		local previousMethod = hhhhState.Method
+		hhhhState.Enabled = true
+		hhhhState.Method = "Mouse.Hit/Target"
+		hhhhState.ForcedTarget = currentTargetPart
+		pcall(function()
+			gun:Activate()
+		end)
+		task.delay(0.25, function()
+			if hhhhState.ForcedTarget == currentTargetPart then
+				hhhhState.ForcedTarget = nil
+			end
+			hhhhState.Method = previousMethod
+			hhhhState.Enabled = previousEnabled
+		end)
+	end)
+	return true, ("Shot sent toward %s."):format(murderer.DisplayName)
 end
 local function teleportToRole(roleName)
 	local localCharacter = player.Character
@@ -4380,19 +4517,19 @@ if rayfieldLoaded and Rayfield then
 			killAuraInterval = value
 		end,
 	})
-	CombatTab:CreateSection("silent")
+	CombatTab:CreateSection("HHHH")
 	CombatTab:CreateLabel("Universal ray and Mouse.Hit aim redirection from your supplied script.", "crosshair")
-	local silentToggle = CombatTab:CreateToggle({
-		Name = "silent",
-		CurrentValue = silentState.Enabled,
-		Flag = "beano_silent_enabled",
+	local hhhhToggle = CombatTab:CreateToggle({
+		Name = "HHHH",
+		CurrentValue = hhhhState.Enabled,
+		Flag = "beano_hhhh_enabled",
 		Callback = function(value)
-			silentState.Enabled = value
+			hhhhState.Enabled = value
 			if not value then
-				hidesilentDrawings()
-			elseif not silentState.HookSupported then
+				hideHHHHDrawings()
+			elseif not hhhhState.HookSupported then
 				Rayfield:Notify({
-					Title = "silent unsupported",
+					Title = "HHHH unsupported",
 					Content = "This executor is missing one or more required metamethod hook functions.",
 					Duration = 7,
 					Image = "triangle-alert",
@@ -4401,104 +4538,132 @@ if rayfieldLoaded and Rayfield then
 		end,
 	})
 	CombatTab:CreateKeybind({
-		Name = "silent toggle key",
+		Name = "HHHH toggle key",
 		CurrentKeybind = "RightAlt",
 		HoldToInteract = false,
-		Flag = "beano_silent_keybind",
+		Flag = "beano_hhhh_keybind",
 		Callback = function()
-			silentToggle:Set(not silentState.Enabled)
+			 hhhhToggle:Set(not hhhhState.Enabled)
 		end,
 	})
 	CombatTab:CreateToggle({
-		Name = "silent team check",
-		CurrentValue = silentState.TeamCheck,
-		Flag = "beano_silent_team_check",
+		Name = "Shoot murderer hotkey",
+		CurrentValue = hhhhState.ShootMurdererEnabled,
+		Flag = "beano_hhhh_shoot_murderer_enabled",
 		Callback = function(value)
-			silentState.TeamCheck = value
+			hhhhState.ShootMurdererEnabled = value
+		end,
+	})
+	CombatTab:CreateKeybind({
+		Name = "Shoot murderer key",
+		CurrentKeybind = "E",
+		HoldToInteract = false,
+		Flag = "beano_hhhh_shoot_murderer_key",
+		Callback = function()
+			if not hhhhState.ShootMurdererEnabled then
+				return
+			end
+			local success, message = hhhhState.ShootMurderer()
+			if not success and message then
+				Rayfield:Notify({
+					Title = "HHHH could not shoot",
+					Content = message,
+					Duration = 4,
+					Image = "triangle-alert",
+				})
+			end
 		end,
 	})
 	CombatTab:CreateToggle({
-		Name = "silent visibility check",
-		CurrentValue = silentState.VisibleCheck,
-		Flag = "beano_silent_visible_check",
+		Name = "HHHH team check",
+		CurrentValue = hhhhState.TeamCheck,
+		Flag = "beano_hhhh_team_check",
 		Callback = function(value)
-			silentState.VisibleCheck = value
+			hhhhState.TeamCheck = value
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "HHHH visibility check",
+		CurrentValue = hhhhState.VisibleCheck,
+		Flag = "beano_hhhh_visible_check",
+		Callback = function(value)
+			hhhhState.VisibleCheck = value
 		end,
 	})
 	CombatTab:CreateDropdown({
-		Name = "silent target part",
+		Name = "HHHH target part",
 		Options = {"HumanoidRootPart", "Head", "Random"},
-		CurrentOption = {silentState.TargetPart},
+		CurrentOption = {hhhhState.TargetPart},
 		MultipleOptions = false,
-		Flag = "beano_silent_target_part",
+		Flag = "beano_hhhh_target_part",
 		Callback = function(options)
-			silentState.TargetPart = options[1] or "HumanoidRootPart"
+			hhhhState.TargetPart = options[1] or "HumanoidRootPart"
 		end,
 	})
 	CombatTab:CreateDropdown({
-		Name = "silent aim method",
+		Name = "HHHH aim method",
 		Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList", "Mouse.Hit/Target"},
-		CurrentOption = {silentState.Method},
+		CurrentOption = {hhhhState.Method},
 		MultipleOptions = false,
-		Flag = "beano_silent_method",
+		Flag = "beano_hhhh_method",
 		Callback = function(options)
-			silentState.Method = options[1] or "Raycast"
+			hhhhState.Method = options[1] or "Raycast"
 		end,
 	})
 	CombatTab:CreateSlider({
-		Name = "silent hit chance",
+		Name = "HHHH hit chance",
 		Range = {0, 100},
 		Increment = 1,
 		Suffix = "%",
-		CurrentValue = silentState.HitChance,
-		Flag = "beano_silent_hit_chance",
+		CurrentValue = hhhhState.HitChance,
+		Flag = "beano_hhhh_hit_chance",
 		Callback = function(value)
-			silentState.HitChance = value
+			hhhhState.HitChance = value
 		end,
 	})
 	CombatTab:CreateSlider({
-		Name = "silent FOV radius",
+		Name = "HHHH FOV radius",
 		Range = {20, 360},
 		Increment = 5,
 		Suffix = " px",
-		CurrentValue = silentState.FOVRadius,
-		Flag = "beano_silent_fov_radius",
+		CurrentValue = hhhhState.FOVRadius,
+		Flag = "beano_hhhh_fov_radius",
 		Callback = function(value)
-			silentState.FOVRadius = value
+			hhhhState.FOVRadius = value
 		end,
 	})
 	CombatTab:CreateToggle({
-		Name = "Show silent FOV circle",
-		CurrentValue = silentState.FOVVisible,
-		Flag = "beano_silent_fov_visible",
+		Name = "Show HHHH FOV circle",
+		CurrentValue = hhhhState.FOVVisible,
+		Flag = "beano_hhhh_fov_visible",
 		Callback = function(value)
-			silentState.FOVVisible = value
+			hhhhState.FOVVisible = value
 		end,
 	})
 	CombatTab:CreateToggle({
-		Name = "Show silent target marker",
-		CurrentValue = silentState.ShowTarget,
-		Flag = "beano_silent_show_target",
+		Name = "Show HHHH target marker",
+		CurrentValue = hhhhState.ShowTarget,
+		Flag = "beano_hhhh_show_target",
 		Callback = function(value)
-			silentState.ShowTarget = value
+			hhhhState.ShowTarget = value
 		end,
 	})
 	CombatTab:CreateToggle({
-		Name = "silent movement prediction",
-		CurrentValue = silentState.Prediction,
-		Flag = "beano_silent_prediction",
+		Name = "HHHH movement prediction",
+		CurrentValue = hhhhState.Prediction,
+		Flag = "beano_hhhh_prediction",
 		Callback = function(value)
-			silentState.Prediction = value
+			hhhhState.Prediction = value
 		end,
 	})
 	CombatTab:CreateSlider({
-		Name = "silent prediction amount",
+		Name = "HHHH prediction amount",
 		Range = {0, 1},
 		Increment = 0.005,
-		CurrentValue = silentState.PredictionAmount,
-		Flag = "beano_silent_prediction_amount",
+		CurrentValue = hhhhState.PredictionAmount,
+		Flag = "beano_hhhh_prediction_amount",
 		Callback = function(value)
-			silentState.PredictionAmount = value
+			hhhhState.PredictionAmount = value
 		end,
 	})
 	local AutomationTab = Window:CreateTab("Automation", "orbit")
