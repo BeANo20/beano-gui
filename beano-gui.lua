@@ -9,6 +9,7 @@ local environment = (getgenv and getgenv()) or _G
 local rayfieldLibrary = nil
 local stopped = false
 local gameLaunching = false
+local HUB_VERSION = "1.0.1"
 
 local RAYFIELD_URLS = {
 	"https://sirius.menu/rayfield",
@@ -166,9 +167,9 @@ end
 
 local uiSuccess, uiError = xpcall(function()
 	local Window = rayfieldLibrary:CreateWindow({
-		Name = "Beano Hub",
+		Name = "Beano Hub v" .. HUB_VERSION,
 		Icon = "sparkles",
-		LoadingTitle = "Beano Hub",
+		LoadingTitle = "Beano Hub v" .. HUB_VERSION,
 		LoadingSubtitle = "Universal script hub",
 		ShowText = "Beano",
 		Theme = "Amethyst",
