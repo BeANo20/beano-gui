@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
+local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local globalEnvironment = (getgenv and getgenv()) or _G
@@ -85,6 +86,20 @@ local coinAuraInterval = 0.2
 local coinAuraMaxPerTick = 8
 local coinCandidates = {}
 local coinCacheBuilt = false
+local hhhhState = {
+	Enabled = false,
+	TeamCheck = false,
+	VisibleCheck = false,
+	TargetPart = "HumanoidRootPart",
+	Method = "Raycast",
+	FOVRadius = 130,
+	FOVVisible = false,
+	ShowTarget = false,
+	Prediction = false,
+	PredictionAmount = 0.165,
+	HitChance = 100,
+}
+local hhhhDrawings = {}
 local function getHumanoid()
 	local character = player.Character
 	if not character then
@@ -202,6 +217,16 @@ local function stopScript()
 	killAuraEnabled = false
 	coinAuraEnabled = false
 	table.clear(coinCandidates)
+	hhhhState.Enabled = false
+	if globalEnvironment.__BEANO_HHHH_STATE == hhhhState then
+		globalEnvironment.__BEANO_HHHH_STATE = nil
+	end
+	for _, drawing in pairs(hhhhDrawings) do
+		pcall(function()
+			drawing:Remove()
+		end)
+	end
+	table.clear(hhhhDrawings)
 	pcall(function()
 		local camera = Workspace.CurrentCamera
 		local humanoid = getHumanoid()
@@ -2769,6 +2794,204 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		coinAuraElapsed = 0
 	end
 end))
+local hhhhMouse = player:GetMouse()
+local function hhhhTargetPosition(targetPart, state)
+	local position = targetPart.Position
+	if state.Prediction then
+		position += targetPart.AssemblyLinearVelocity * state.PredictionAmount
+	end
+	return position
+end
+local function hhhhIsVisible(targetPart)
+	local camera = Workspace.CurrentCamera
+	local localCharacter = player.Character
+	local targetCharacter = targetPart and targetPart:FindFirstAncestorOfClass("Model")
+	if not camera or not localCharacter or not targetCharacter then
+		return false
+	end
+	local obscuring = camera:GetPartsObscuringTarget({targetPart.Position}, {localCharacter, targetCharacter})
+	return #obscuring == 0
+end
+local function hhhhClosestTarget()
+	local state = globalEnvironment.__BEANO_HHHH_STATE
+	local camera = Workspace.CurrentCamera
+	if not state or not state.Enabled or not camera then
+		return nil
+	end
+	local mousePosition = UserInputService:GetMouseLocation()
+	local closestPart = nil
+	local closestDistance = state.FOVRadius
+	for _, targetPlayer in ipairs(Players:GetPlayers()) do
+		if targetPlayer ~= player and (not state.TeamCheck or targetPlayer.Team ~= player.Team) then
+			local character = targetPlayer.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				local targetName = state.TargetPart
+				if targetName == "Random" then
+					targetName = math.random(1, 2) == 1 and "Head" or "HumanoidRootPart"
+				end
+				local targetPart = character:FindFirstChild(targetName) or character:FindFirstChild("HumanoidRootPart")
+				if targetPart and (not state.VisibleCheck or hhhhIsVisible(targetPart)) then
+					local viewport, onScreen = camera:WorldToViewportPoint(hhhhTargetPosition(targetPart, state))
+					if onScreen then
+						local distance = (mousePosition - Vector2.new(viewport.X, viewport.Y)).Magnitude
+						if distance <= closestDistance then
+							closestDistance = distance
+							closestPart = targetPart
+						end
+					end
+				end
+			end
+		end
+	end
+	return closestPart
+end
+local function ensureHHHHDrawings()
+	if hhhhDrawings.FOV and hhhhDrawings.Target then
+		return true
+	end
+	local drawingApi = globalEnvironment.Drawing or Drawing
+	if type(drawingApi) ~= "table" or type(drawingApi.new) ~= "function" then
+		return false
+	end
+	local success = pcall(function()
+		local fov = drawingApi.new("Circle")
+		fov.Visible = false
+		fov.Thickness = 1.5
+		fov.NumSides = 80
+		fov.Radius = hhhhState.FOVRadius
+		fov.Filled = false
+		fov.ZIndex = 999
+		fov.Transparency = 1
+		fov.Color = Color3.fromRGB(115, 105, 255)
+		local target = drawingApi.new("Square")
+		target.Visible = false
+		target.ZIndex = 1000
+		target.Color = Color3.fromRGB(255, 90, 110)
+		target.Thickness = 2
+		target.Size = Vector2.new(20, 20)
+		target.Filled = false
+		hhhhDrawings.FOV = fov
+		hhhhDrawings.Target = target
+	end)
+	return success
+end
+local function hideHHHHDrawings()
+	for _, drawing in pairs(hhhhDrawings) do
+		pcall(function()
+			drawing.Visible = false
+		end)
+	end
+end
+local function updateHHHHVisuals()
+	if not hhhhState.Enabled then
+		hideHHHHDrawings()
+		return
+	end
+	if not ensureHHHHDrawings() then
+		return
+	end
+	local mousePosition = UserInputService:GetMouseLocation()
+	local fov = hhhhDrawings.FOV
+	fov.Position = mousePosition
+	fov.Radius = hhhhState.FOVRadius
+	fov.Visible = hhhhState.FOVVisible
+	local marker = hhhhDrawings.Target
+	if not hhhhState.ShowTarget then
+		marker.Visible = false
+		return
+	end
+	local targetPart = hhhhClosestTarget()
+	local camera = Workspace.CurrentCamera
+	if targetPart and camera then
+		local viewport, onScreen = camera:WorldToViewportPoint(hhhhTargetPosition(targetPart, hhhhState))
+		marker.Visible = onScreen
+		marker.Position = Vector2.new(viewport.X - 10, viewport.Y - 10)
+	else
+		marker.Visible = false
+	end
+end
+hhhhState.Mouse = hhhhMouse
+hhhhState.GetTarget = hhhhClosestTarget
+hhhhState.GetTargetPosition = hhhhTargetPosition
+globalEnvironment.__BEANO_HHHH_STATE = hhhhState
+local hhhhHookMetamethod = globalEnvironment.hookmetamethod
+local hhhhNewClosure = globalEnvironment.newcclosure or function(callback)
+	return callback
+end
+local hhhhCheckCaller = globalEnvironment.checkcaller
+local hhhhGetNamecallMethod = globalEnvironment.getnamecallmethod
+if type(hhhhHookMetamethod) == "function"
+	and type(hhhhCheckCaller) == "function"
+	and type(hhhhGetNamecallMethod) == "function"
+	and not globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED then
+	local hookSuccess = pcall(function()
+		local oldNamecall
+		oldNamecall = hhhhHookMetamethod(game, "__namecall", hhhhNewClosure(function(self, ...)
+			local state = globalEnvironment.__BEANO_HHHH_STATE
+			local method = hhhhGetNamecallMethod()
+			if state and state.Enabled and self == Workspace and not hhhhCheckCaller()
+				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
+				local targetPart = state.GetTarget and state.GetTarget()
+				if targetPart then
+					local args = {...}
+					local targetPosition = state.GetTargetPosition(targetPart, state)
+					if method == "Raycast" and state.Method == "Raycast"
+						and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+						args[2] = (targetPosition - args[1]).Unit * 1000
+						return oldNamecall(self, table.unpack(args))
+					elseif (method == "FindPartOnRay" or method == "findPartOnRay") and state.Method == "FindPartOnRay"
+						and typeof(args[1]) == "Ray" then
+						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
+						return oldNamecall(self, table.unpack(args))
+					elseif method == "FindPartOnRayWithWhitelist" and state.Method == method
+						and typeof(args[1]) == "Ray" then
+						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
+						return oldNamecall(self, table.unpack(args))
+					elseif method == "FindPartOnRayWithIgnoreList" and state.Method == method
+						and typeof(args[1]) == "Ray" then
+						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
+						return oldNamecall(self, table.unpack(args))
+					end
+				end
+			end
+			return oldNamecall(self, ...)
+		end))
+	end)
+	if hookSuccess then
+		globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED = true
+	end
+end
+if type(hhhhHookMetamethod) == "function"
+	and type(hhhhCheckCaller) == "function"
+	and not globalEnvironment.__BEANO_HHHH_INDEX_HOOKED then
+	local hookSuccess = pcall(function()
+		local oldIndex
+		oldIndex = hhhhHookMetamethod(game, "__index", hhhhNewClosure(function(self, key)
+			local state = globalEnvironment.__BEANO_HHHH_STATE
+			if state and state.Enabled and state.Method == "Mouse.Hit/Target"
+				and self == state.Mouse and not hhhhCheckCaller()
+				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
+				local targetPart = state.GetTarget and state.GetTarget()
+				if targetPart then
+					if key == "Target" or key == "target" then
+						return targetPart
+					elseif key == "Hit" or key == "hit" then
+						local position = state.GetTargetPosition(targetPart, state)
+						return CFrame.new(position)
+					end
+				end
+			end
+			return oldIndex(self, key)
+		end))
+	end)
+	if hookSuccess then
+		globalEnvironment.__BEANO_HHHH_INDEX_HOOKED = true
+	end
+end
+hhhhState.HookSupported = globalEnvironment.__BEANO_HHHH_NAMECALL_HOOKED == true
+	and globalEnvironment.__BEANO_HHHH_INDEX_HOOKED == true
+table.insert(connections, RunService.RenderStepped:Connect(updateHHHHVisuals))
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
 	return normalizedName == "gun"
@@ -4155,6 +4378,127 @@ if rayfieldLoaded and Rayfield then
 		Flag = "beano_kill_aura_interval",
 		Callback = function(value)
 			killAuraInterval = value
+		end,
+	})
+	CombatTab:CreateSection("HHHH")
+	CombatTab:CreateLabel("Universal ray and Mouse.Hit aim redirection from your supplied script.", "crosshair")
+	local hhhhToggle = CombatTab:CreateToggle({
+		Name = "HHHH",
+		CurrentValue = hhhhState.Enabled,
+		Flag = "beano_hhhh_enabled",
+		Callback = function(value)
+			hhhhState.Enabled = value
+			if not value then
+				hideHHHHDrawings()
+			elseif not hhhhState.HookSupported then
+				Rayfield:Notify({
+					Title = "HHHH unsupported",
+					Content = "This executor is missing one or more required metamethod hook functions.",
+					Duration = 7,
+					Image = "triangle-alert",
+				})
+			end
+		end,
+	})
+	CombatTab:CreateKeybind({
+		Name = "HHHH toggle key",
+		CurrentKeybind = "RightAlt",
+		HoldToInteract = false,
+		Flag = "beano_hhhh_keybind",
+		Callback = function()
+			hhhhToggle:Set(not hhhhState.Enabled)
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "HHHH team check",
+		CurrentValue = hhhhState.TeamCheck,
+		Flag = "beano_hhhh_team_check",
+		Callback = function(value)
+			hhhhState.TeamCheck = value
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "HHHH visibility check",
+		CurrentValue = hhhhState.VisibleCheck,
+		Flag = "beano_hhhh_visible_check",
+		Callback = function(value)
+			hhhhState.VisibleCheck = value
+		end,
+	})
+	CombatTab:CreateDropdown({
+		Name = "HHHH target part",
+		Options = {"HumanoidRootPart", "Head", "Random"},
+		CurrentOption = {hhhhState.TargetPart},
+		MultipleOptions = false,
+		Flag = "beano_hhhh_target_part",
+		Callback = function(options)
+			hhhhState.TargetPart = options[1] or "HumanoidRootPart"
+		end,
+	})
+	CombatTab:CreateDropdown({
+		Name = "HHHH aim method",
+		Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList", "Mouse.Hit/Target"},
+		CurrentOption = {hhhhState.Method},
+		MultipleOptions = false,
+		Flag = "beano_hhhh_method",
+		Callback = function(options)
+			hhhhState.Method = options[1] or "Raycast"
+		end,
+	})
+	CombatTab:CreateSlider({
+		Name = "HHHH hit chance",
+		Range = {0, 100},
+		Increment = 1,
+		Suffix = "%",
+		CurrentValue = hhhhState.HitChance,
+		Flag = "beano_hhhh_hit_chance",
+		Callback = function(value)
+			hhhhState.HitChance = value
+		end,
+	})
+	CombatTab:CreateSlider({
+		Name = "HHHH FOV radius",
+		Range = {20, 360},
+		Increment = 5,
+		Suffix = " px",
+		CurrentValue = hhhhState.FOVRadius,
+		Flag = "beano_hhhh_fov_radius",
+		Callback = function(value)
+			hhhhState.FOVRadius = value
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "Show HHHH FOV circle",
+		CurrentValue = hhhhState.FOVVisible,
+		Flag = "beano_hhhh_fov_visible",
+		Callback = function(value)
+			hhhhState.FOVVisible = value
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "Show HHHH target marker",
+		CurrentValue = hhhhState.ShowTarget,
+		Flag = "beano_hhhh_show_target",
+		Callback = function(value)
+			hhhhState.ShowTarget = value
+		end,
+	})
+	CombatTab:CreateToggle({
+		Name = "HHHH movement prediction",
+		CurrentValue = hhhhState.Prediction,
+		Flag = "beano_hhhh_prediction",
+		Callback = function(value)
+			hhhhState.Prediction = value
+		end,
+	})
+	CombatTab:CreateSlider({
+		Name = "HHHH prediction amount",
+		Range = {0, 1},
+		Increment = 0.005,
+		CurrentValue = hhhhState.PredictionAmount,
+		Flag = "beano_hhhh_prediction_amount",
+		Callback = function(value)
+			hhhhState.PredictionAmount = value
 		end,
 	})
 	local AutomationTab = Window:CreateTab("Automation", "orbit")
