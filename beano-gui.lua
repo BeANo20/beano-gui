@@ -1,6 +1,3 @@
--- Client-side speed controller.
--- Place this as a LocalScript in StarterPlayerScripts or StarterGui.
-
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,33 +5,24 @@ local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-
--- Stop a previously running copy before creating any new events or visuals.
--- This makes rerunning an updated version safe even if the old window is hidden.
 local globalEnvironment = (getgenv and getgenv()) or _G
 local previousCleanup = globalEnvironment.__BEANO_GUI_CLEANUP
 if type(previousCleanup) == "function" then
 	pcall(previousCleanup)
 end
 globalEnvironment.__BEANO_GUI_CLEANUP = nil
-
 local existingGui = playerGui:FindFirstChild("SpeedController")
 if existingGui then
 	existingGui:Destroy()
 end
-
--- Remove the previous UI name once so rerunning the updated script does not
--- leave an old controller behind.
 local legacyGui = playerGui:FindFirstChild("StudioSpeedController")
 if legacyGui then
 	legacyGui:Destroy()
 end
-
 local existingTradeGui = playerGui:FindFirstChild("SupremeTradeCalculator")
 if existingTradeGui then
 	existingTradeGui:Destroy()
 end
-
 local targetSpeed = 16
 local minimumSpeed = 0
 local maximumSpeed = 200
@@ -84,7 +72,6 @@ local selectedPlayer = nil
 local spectatingPlayer = nil
 local flingInProgress = false
 local interfaceReady = false
-
 local function getHumanoid()
 	local character = player.Character
 	if not character then
@@ -92,14 +79,12 @@ local function getHumanoid()
 	end
 	return character:FindFirstChildOfClass("Humanoid")
 end
-
 local function applySpeed()
 	local humanoid = getHumanoid()
 	if humanoid and humanoid.WalkSpeed ~= targetSpeed then
 		humanoid.WalkSpeed = targetSpeed
 	end
 end
-
 local function applyJumpHeight()
 	local humanoid = getHumanoid()
 	if humanoid then
@@ -111,9 +96,6 @@ local function applyJumpHeight()
 		end
 	end
 end
-
--- Lightweight state objects used by shared callbacks. They are never parented
--- to PlayerGui, so the removed legacy interface cannot render or flash.
 local gui = Instance.new("ScreenGui")
 gui.Name = "BeanoInternalState"
 gui.Enabled = false
@@ -126,7 +108,6 @@ jumpInput.Text = tostring(targetJumpHeight)
 local jumpApplyButton = Instance.new("TextButton")
 local status = Instance.new("TextLabel")
 local stopButton = Instance.new("TextButton")
-
 local function setTargetSpeed()
 	local parsed = tonumber(input.Text)
 	if not parsed then
@@ -135,14 +116,12 @@ local function setTargetSpeed()
 		input.Text = tostring(targetSpeed)
 		return
 	end
-
 	targetSpeed = math.clamp(parsed, minimumSpeed, maximumSpeed)
 	input.Text = tostring(targetSpeed)
 	status.Text = ("Target speed: %d"):format(targetSpeed)
 	status.TextColor3 = Color3.fromRGB(145, 255, 170)
 	applySpeed()
 end
-
 local function setTargetJumpHeight()
 	local parsed = tonumber(jumpInput.Text)
 	if not parsed then
@@ -151,19 +130,16 @@ local function setTargetJumpHeight()
 		jumpInput.Text = tostring(targetJumpHeight)
 		return
 	end
-
 	targetJumpHeight = math.clamp(parsed, minimumJumpHeight, maximumJumpHeight)
 	jumpInput.Text = tostring(targetJumpHeight)
 	status.Text = ("Target jump height: %.1f"):format(targetJumpHeight)
 	status.TextColor3 = Color3.fromRGB(145, 255, 170)
 	applyJumpHeight()
 end
-
 local function stopScript()
 	if stopped then
 		return
 	end
-
 	stopped = true
 	interfaceReady = false
 	pcall(function()
@@ -219,41 +195,33 @@ local function stopScript()
 	if globalEnvironment.__BEANO_GUI_CLEANUP == stopScript then
 		globalEnvironment.__BEANO_GUI_CLEANUP = nil
 	end
-
 	if gui then
 		gui:Destroy()
 	end
 	tradeGui = nil
-
 	pcall(function()
 		if script and script.Destroy then
 			script:Destroy()
 		end
 	end)
 end
-
 table.insert(connections, applyButton.Activated:Connect(setTargetSpeed))
 table.insert(connections, input.FocusLost:Connect(function(enterPressed)
 	if enterPressed then
 		setTargetSpeed()
 	end
 end))
-
 table.insert(connections, jumpApplyButton.Activated:Connect(setTargetJumpHeight))
 table.insert(connections, jumpInput.FocusLost:Connect(function(enterPressed)
 	if enterPressed then
 		setTargetJumpHeight()
 	end
 end))
-
 table.insert(connections, player.CharacterAdded:Connect(function(character)
 	character:WaitForChild("Humanoid", 5)
 	applySpeed()
 	applyJumpHeight()
 end))
-
--- Keep the selected value applied during testing if another local
--- script changes WalkSpeed or JumpHeight while the character is active.
 local movementApplyElapsed = 0
 table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 	if not interfaceReady or not movementLockEnabled then
@@ -266,15 +234,9 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		applyJumpHeight()
 	end
 end))
-
 table.insert(connections, stopButton.Activated:Connect(stopScript))
-
 applySpeed()
 applyJumpHeight()
-
--- Supreme Values snapshot used by the trade calculator.
--- Source: https://www.supremevalues.com/mm2/
--- Snapshot date: August 8, 2026. Unknown items are reported instead of guessed.
 local supremeValuesUpdated = "Aug 8, 2026"
 local supremeValues = {
 	["Gingerscope"] = 17750,
@@ -390,10 +352,6 @@ local supremeValues = {
 	["Chroma Heat"] = 28,
 	["Chroma Seer"] = 28,
 }
-
--- User-provided Supreme Values weapon snapshot.
--- Source file: C:\\Users\\jacks\\Downloads\\mm2_supreme_tradable_weapons.json
--- Retrieved: 2026-08-08T01:30:08.898Z
 local supremeValuesJsonSnapshot = {
     ["Gingerscope"] = 17750,
     ["Nik's Scythe"] = "Priceless",
@@ -703,8 +661,6 @@ local supremeValuesJsonSnapshot = {
     ["Splitter"] = 3,
 }
 supremeValues = supremeValuesJsonSnapshot
-
--- Demand values from the user-provided Supreme snapshot.
 local supremeDemandValues = {
 	["Gingerscope"] = 6,
 	["Nik's Scythe"] = 11,
@@ -1003,9 +959,6 @@ local supremeDemandValues = {
 	["Golden"] = 1,
 	["Splitter"] = 1,
 }
-
--- Some Supreme entries intentionally share a display name but differ by category.
--- Trade event payloads include Category, so preserve those exact variants here.
 local supremeCategoryValues = {
 	["batwing"] = {
 		["ancient"] = { name = "Batwing", value = 42 },
@@ -1048,10 +1001,8 @@ local supremeCategoryValues = {
 		["rare"] = { name = "Vampire (Knife)", value = 1 },
 	},
 }
-
 local normalizedValues = {}
 local sortedValueNames = {}
-
 local function normalizeItemName(rawName)
 	local normalized = tostring(rawName):gsub("(%l)(%u)", "%1 %2")
 	normalized = string.lower(normalized)
@@ -1064,17 +1015,14 @@ local function normalizeItemName(rawName)
 	end
 	return normalized
 end
-
 for itemName, value in pairs(supremeValues) do
 	local normalizedName = normalizeItemName(itemName)
 	normalizedValues[normalizedName] = { name = itemName, value = value }
 	table.insert(sortedValueNames, itemName)
 end
-
 table.sort(sortedValueNames, function(left, right)
 	return #left > #right
 end)
-
 local function formatValue(value)
 	local formatted = tostring(math.floor(value))
 	while true do
@@ -1086,12 +1034,9 @@ local function formatValue(value)
 	end
 	return formatted
 end
-
 local function normalizeCategory(rawCategory)
 	return string.lower(tostring(rawCategory or "")):gsub("[^%w]", "")
 end
-
--- Category-specific demand values for duplicate display names.
 local supremeCategoryDemands = {
 	["batwing"] = {
 		["ancient"] = 1,
@@ -1134,11 +1079,6 @@ local supremeCategoryDemands = {
 		["rare"] = 1,
 	},
 }
-
-
--- Complete expanded list from the newer user-provided JSON.
--- Expanded snapshot from the newer user-provided JSON (526 grouped entries).
--- Retrieved: 2026-08-08T01:48:48.761Z; source values last updated: 2026-08-06T14:59:00.
 local expandedSupremeValues = {
 	["Nik's Scythe"] = "Priceless",
 	["Batwing"] = 42,
@@ -2341,14 +2281,9 @@ supremeValues = expandedSupremeValues
 supremeDemandValues = expandedSupremeDemands
 supremeCategoryValues = expandedSupremeCategoryValues
 supremeCategoryDemands = expandedSupremeCategoryDemands
-
--- The trade payload uses internal item IDs. Resolve known IDs to their physical
--- display item before reading the Supreme value table.
 local tradeNameAliases = {
 	["scythe"] = "batwing",
 }
-
--- Rebuild the normalized indexes after loading the expanded snapshot.
 normalizedValues = {}
 sortedValueNames = {}
 for itemName, value in pairs(supremeValues) do
@@ -2359,7 +2294,6 @@ end
 table.sort(sortedValueNames, function(left, right)
 	return #left > #right
 end)
-
 local function lookupValue(itemName, category)
 	local normalizedName = normalizeItemName(itemName)
 	if normalizedName:find("batwing", 1, true) then
@@ -2372,8 +2306,6 @@ local function lookupValue(itemName, category)
 		if normalizedCategory ~= "" and categoryEntries[normalizedCategory] then
 			return categoryEntries[normalizedCategory]
 		end
-		-- Batwing is the Ancient item in normal MM2 trade payloads. Some payloads
-		-- omit the category or send a generic category, so keep its 42-value entry.
 		if normalizedName == "batwing" then
 			return categoryEntries.ancient
 		end
@@ -2388,7 +2320,6 @@ local function lookupValue(itemName, category)
 	end
 	return normalizedValues[normalizedName]
 end
-
 local function lookupDemand(itemName, category)
 	local normalizedName = normalizeItemName(itemName)
 	if normalizedName:find("batwing", 1, true) then
@@ -2408,14 +2339,12 @@ local function lookupDemand(itemName, category)
 	end
 	return supremeDemandValues[normalizedName]
 end
-
 local function parseItemList(rawText)
 	local total = 0
 	local found = {}
 	local unknown = {}
 	local demandSum = 0
 	local demandCount = 0
-
 	for token in string.gmatch(rawText or "", "[^,\n]+") do
 		local itemName = token:match("^%s*(.-)%s*$")
 		local quantity = tonumber(itemName:match("^(%d+)%s*[xX]%s+")) or 1
@@ -2425,7 +2354,6 @@ local function parseItemList(rawText)
 			quantity = trailingQuantity
 			itemName = itemName:gsub("%s+[xX]%s*%d+%s*$", "")
 		end
-
 		local entry = lookupValue(itemName)
 		if entry and type(entry.value) == "number" then
 			total += entry.value * quantity
@@ -2448,10 +2376,8 @@ local function parseItemList(rawText)
 			table.insert(unknown, itemName)
 		end
 	end
-
 	return total, found, unknown, demandSum, demandCount
 end
-
 local function findTradeSide(instance)
 	local current = instance.Parent
 	local hasTradeRoot = false
@@ -2486,13 +2412,11 @@ local function findTradeSide(instance)
 	end
 	return hasTradeRoot and hasOfferRoot and not isInventoryUi, side, tradeRoot
 end
-
 local function scanVisibleTrade()
 	local totals = { You = 0, Them = 0, Other = 0 }
 	local names = { You = {}, Them = {}, Other = {} }
 	local yourHeading = nil
 	local theirHeading = nil
-
 	for _, descendant in ipairs(playerGui:GetDescendants()) do
 		if descendant:IsA("TextLabel") and descendant.Visible then
 			local text = normalizeItemName(descendant.Text)
@@ -2503,7 +2427,6 @@ local function scanVisibleTrade()
 			end
 		end
 	end
-
 	local function hasChromaMarker(label)
 		local current = label.Parent
 		for _ = 1, 3 do
@@ -2522,7 +2445,6 @@ local function scanVisibleTrade()
 		end
 		return false
 	end
-
 	for _, descendant in ipairs(playerGui:GetDescendants()) do
 		if descendant:IsA("TextLabel") and descendant.Visible then
 			local isTradeUi, side = findTradeSide(descendant)
@@ -2559,20 +2481,14 @@ local function scanVisibleTrade()
 			end
 		end
 	end
-
 	return totals, names
 end
-
 tradeGui = gui
-
--- Internal controls retain shared state for the trade and role callbacks without
--- constructing or parenting the removed legacy interface.
 local function internalInstance(className, parent)
 	local instance = Instance.new(className)
 	instance.Parent = parent or gui
 	return instance
 end
-
 mainWindow = internalInstance("Frame")
 local tradeFrame = internalInstance("Frame", mainWindow)
 local settingsPanel = internalInstance("Frame", mainWindow)
@@ -2584,13 +2500,11 @@ local contentArea = internalInstance("Frame", mainWindow)
 local pageTitle = internalInstance("TextLabel", mainWindow)
 pageTitle.Text = "Main"
 frame.Parent = mainWindow
-
 local function roundButton(button)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 7)
 	corner.Parent = button
 end
-
 local tradeUpdated = internalInstance("TextLabel", tradeFrame)
 tradeUpdated.Text = "Supreme snapshot: " .. supremeValuesUpdated
 local tradeValueSummary = internalInstance("TextLabel", tradeFrame)
@@ -2602,7 +2516,6 @@ local scanTradeButton = internalInstance("TextButton", tradeFrame)
 scanTradeButton.Visible = false
 local tradeResult = internalInstance("TextLabel", tradeFrame)
 tradeResult.Text = "Enter items separated by commas, or scan an open trade."
-
 local playerInfo = internalInstance("TextLabel", playerPanel)
 local roleHighlightButton = internalInstance("TextButton", playerPanel)
 local roleHighlightStatus = internalInstance("TextLabel", playerPanel)
@@ -2612,7 +2525,6 @@ local roleLinesButton = internalInstance("TextButton", playerPanel)
 local teleportSheriffButton = internalInstance("TextButton", playerPanel)
 local teleportMurdererButton = internalInstance("TextButton", playerPanel)
 local autoPickupGunButton = internalInstance("TextButton", playerPanel)
-
 local function refreshPlayerInfo()
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -2622,36 +2534,24 @@ local function refreshPlayerInfo()
 		.. "\nWalkSpeed: " .. (humanoid and tostring(humanoid.WalkSpeed) or "n/a")
 		.. "\nJumpHeight: " .. (humanoid and tostring(humanoid.JumpHeight) or "n/a")
 end
-
 refreshPlayerInfo()
-
--- Role diagnostics: this only reads an explicit Role/TeamRole attribute
--- or StringValue exposed by your own test place. It does not inspect remotes or
--- infer hidden roles from live-game state.
-
 local function playerHasTool(targetPlayer, toolName)
 	local character = targetPlayer.Character
 	local backpack = targetPlayer:FindFirstChild("Backpack")
-	-- Equipped and backpack Tools are direct children. Avoid recursive searches
-	-- here because this function runs repeatedly for every player.
 	return (character and character:FindFirstChild(toolName) ~= nil)
 		or (backpack and backpack:FindFirstChild(toolName) ~= nil)
 end
-
 local function readRole(targetPlayer)
-
 	local role = targetPlayer:GetAttribute("Role")
 		or targetPlayer:GetAttribute("TeamRole")
 		or targetPlayer:GetAttribute("PlayerRole")
 	if type(role) == "string" and role ~= "" then
 		return role
 	end
-
 	local roleValue = targetPlayer:FindFirstChild("Role") or targetPlayer:FindFirstChild("TeamRole")
 	if roleValue and roleValue:IsA("StringValue") and roleValue.Value ~= "" then
 		return roleValue.Value
 	end
-
 	local character = targetPlayer.Character
 	if character then
 		local characterRole = character:GetAttribute("Role") or character:GetAttribute("TeamRole")
@@ -2663,10 +2563,6 @@ local function readRole(targetPlayer)
 			return characterRoleValue.Value
 		end
 	end
-
-	-- Test fallback: mirror the public tool markers used by your own
-	-- test place without reading remotes, disabling idle connections, or
-	-- sending player data anywhere. Explicit role attributes still win.
 	local hasKnife = playerHasTool(targetPlayer, "Knife")
 	local hasGun = playerHasTool(targetPlayer, "Gun")
 	if hasKnife then
@@ -2683,10 +2579,8 @@ local function readRole(targetPlayer)
 		end
 		return "Gun Holder"
 	end
-
 	return "Innocent"
 end
-
 local function updateRoundRoleTracking()
 	local now = os.clock()
 	local sawRoleTool = false
@@ -2696,7 +2590,6 @@ local function updateRoundRoleTracking()
 			break
 		end
 	end
-
 	if not sawRoleTool then
 		if trackedRoundActive and now - lastRoleToolSeenAt >= 2 then
 			trackedRoundActive = false
@@ -2706,7 +2599,6 @@ local function updateRoundRoleTracking()
 		end
 		return
 	end
-
 	lastRoleToolSeenAt = now
 	if not trackedRoundActive then
 		trackedRoundActive = true
@@ -2715,28 +2607,24 @@ local function updateRoundRoleTracking()
 		table.clear(trackedInnocents)
 		table.clear(trackedMurderers)
 	end
-
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
 		local hasKnife = playerHasTool(targetPlayer, "Knife")
 		local hasGun = playerHasTool(targetPlayer, "Gun")
 		if hasKnife then
 			trackedMurderers[targetPlayer] = true
 		elseif not hasGun and not trackedMurderers[targetPlayer] then
-			-- Any player seen unarmed before they take the gun can be a Hero.
 			trackedInnocents[targetPlayer] = true
 		elseif hasGun and not trackedSheriff and now - trackedRoundStartedAt <= roleGracePeriod then
 			trackedSheriff = targetPlayer
 		end
 	end
 end
-
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
 	return normalizedName == "gun"
 		or normalizedName == "gundrop"
 		or normalizedName == "droppedgun"
 end
-
 local function isHeldByPlayer(instance)
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
 		local character = targetPlayer.Character
@@ -2748,14 +2636,12 @@ local function isHeldByPlayer(instance)
 	end
 	return false
 end
-
 local function getGunPart(droppedGun)
 	if droppedGun:IsA("BasePart") then
 		return droppedGun
 	end
 	return droppedGun:FindFirstChild("Handle") or droppedGun:FindFirstChildWhichIsA("BasePart", true)
 end
-
 local function findDroppedGun()
 	if cachedDroppedGun and cachedDroppedGun.Parent and not isHeldByPlayer(cachedDroppedGun) then
 		return cachedDroppedGun
@@ -2768,10 +2654,6 @@ local function findDroppedGun()
 		return nil
 	end
 	gunScanRequested = false
-
-	-- MM2 parents GunDrop directly to Workspace. Only inspect top-level children;
-	-- walking an entire map can allocate a very large descendants array during
-	-- round transitions and was a source of severe frame spikes.
 	for _, instance in ipairs(Workspace:GetChildren()) do
 		local canBeGunDrop = instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart")
 		if canBeGunDrop and isDroppedGunName(instance.Name) and not isHeldByPlayer(instance) then
@@ -2781,7 +2663,6 @@ local function findDroppedGun()
 	end
 	return nil
 end
-
 local function updateDroppedGunCham(droppedGun)
 	if not gunChamEnabled then
 		if droppedGunHighlight and droppedGunHighlight.Parent then
@@ -2790,7 +2671,6 @@ local function updateDroppedGunCham(droppedGun)
 		droppedGunHighlight = nil
 		return
 	end
-
 	if not droppedGun then
 		if droppedGunHighlight and droppedGunHighlight.Parent then
 			droppedGunHighlight:Destroy()
@@ -2798,12 +2678,10 @@ local function updateDroppedGunCham(droppedGun)
 		droppedGunHighlight = nil
 		return
 	end
-
 	local gunAdornee = getGunPart(droppedGun)
 	if not gunAdornee then
 		return
 	end
-
 	if not droppedGunHighlight or droppedGunHighlight.Parent ~= droppedGun then
 		if droppedGunHighlight and droppedGunHighlight.Parent then
 			droppedGunHighlight:Destroy()
@@ -2819,7 +2697,6 @@ local function updateDroppedGunCham(droppedGun)
 		droppedGunHighlight.Parent = droppedGun
 	end
 end
-
 local function moveDroppedGunToPlayer(droppedGun)
 	if not autoPickupGunEnabled then
 		return
@@ -2828,26 +2705,22 @@ local function moveDroppedGunToPlayer(droppedGun)
 	if now - lastGunPickupAttempt < gunPickupCooldown then
 		return
 	end
-
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root or not droppedGun then
 		return
 	end
 	lastGunPickupAttempt = now
-
 	local gunPart = getGunPart(droppedGun)
 	if not gunPart then
 		return
 	end
-
 	local pickupCFrame = root.CFrame * CFrame.new(0, -2, 0)
 	if droppedGun:IsA("Model") then
 		droppedGun:PivotTo(pickupCFrame)
 	else
 		gunPart.CFrame = pickupCFrame
 	end
-
 	local prompt = droppedGun:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if prompt and type(fireproximityprompt) == "function" then
 		pcall(fireproximityprompt, prompt)
@@ -2859,7 +2732,6 @@ local function moveDroppedGunToPlayer(droppedGun)
 		end)
 	end
 end
-
 local function roleColor(role)
 	local normalizedRole = string.lower(role or "")
 	if normalizedRole:find("murder", 1, true) or normalizedRole:find("killer", 1, true) then
@@ -2873,7 +2745,6 @@ local function roleColor(role)
 	end
 	return Color3.fromRGB(100, 235, 135)
 end
-
 local function removeRoleLine(entry)
 	if entry.beam and entry.beam.Parent then
 		entry.beam:Destroy()
@@ -2888,7 +2759,6 @@ local function removeRoleLine(entry)
 	entry.originAttachment = nil
 	entry.targetAttachment = nil
 end
-
 local function removeRoleHighlight(targetPlayer)
 	local entry = roleHighlights[targetPlayer]
 	if entry then
@@ -2902,19 +2772,16 @@ local function removeRoleHighlight(targetPlayer)
 		roleHighlights[targetPlayer] = nil
 	end
 end
-
 local function clearRoleHighlights()
 	for targetPlayer in pairs(roleHighlights) do
 		removeRoleHighlight(targetPlayer)
 	end
 end
-
 local function updateRoleLine(entry, character, color)
 	if not roleLinesEnabled then
 		removeRoleLine(entry)
 		return
 	end
-
 	local originCharacter = player.Character
 	local originRoot = originCharacter and (originCharacter:FindFirstChild("HumanoidRootPart") or originCharacter:FindFirstChild("Head"))
 	local targetRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
@@ -2922,22 +2789,18 @@ local function updateRoleLine(entry, character, color)
 		removeRoleLine(entry)
 		return
 	end
-
 	if entry.originAttachment and entry.originAttachment.Parent ~= originRoot then
 		removeRoleLine(entry)
 	elseif entry.targetAttachment and entry.targetAttachment.Parent ~= targetRoot then
 		removeRoleLine(entry)
 	end
-
 	if not entry.beam then
 		local originAttachment = Instance.new("Attachment")
 		originAttachment.Name = "RoleLineOrigin"
 		originAttachment.Parent = originRoot
-
 		local targetAttachment = Instance.new("Attachment")
 		targetAttachment.Name = "RoleLineTarget"
 		targetAttachment.Parent = targetRoot
-
 		local beam = Instance.new("Beam")
 		beam.Name = "RoleLine"
 		beam.Attachment0 = originAttachment
@@ -2949,29 +2812,23 @@ local function updateRoleLine(entry, character, color)
 		beam.LightInfluence = 0
 		beam.Transparency = NumberSequence.new(0)
 		beam.Parent = originRoot
-
 		entry.originAttachment = originAttachment
 		entry.targetAttachment = targetAttachment
 		entry.beam = beam
 	end
-
 	entry.beam.Color = ColorSequence.new(color)
 	entry.beam.Width0 = roleLineWidth
 	entry.beam.Width1 = roleLineWidth
 end
-
 local function refreshRoleHighlights()
 	if not roleHighlightsEnabled then
 		clearRoleHighlights()
 		roleShownCount = 0
-
 		if roleHighlightStatus then
 			roleHighlightStatus.Text = "Role scanner is off"
 		end
-
 		return
 	end
-
 	local shown = 0
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
 		if targetPlayer ~= player then
@@ -2995,7 +2852,6 @@ local function refreshRoleHighlights()
 					highlight.Enabled = roleChamsEnabled
 					highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 					highlight.Parent = character
-
 					local head = character:FindFirstChild("Head")
 					local label = Instance.new("BillboardGui")
 					label.Name = "RoleLabel"
@@ -3005,18 +2861,16 @@ local function refreshRoleHighlights()
 					label.AlwaysOnTop = true
 					label.Enabled = roleNamesEnabled
 					label.Parent = character
-
 					local labelText = Instance.new("TextLabel")
 					labelText.BackgroundTransparency = 1
 					labelText.Size = UDim2.fromScale(1, 1)
-					labelText.Text = targetPlayer.DisplayName .. " • " .. role
+					labelText.Text = targetPlayer.DisplayName .. " â€¢ " .. role
 					labelText.TextColor3 = color
 					labelText.Text = targetPlayer.DisplayName .. " - " .. role
 					labelText.TextStrokeTransparency = 0.35
 					labelText.TextSize = 14
 					labelText.Font = Enum.Font.GothamBold
 					labelText.Parent = label
-
 					entry = { character = character, highlight = highlight, label = label, labelText = labelText }
 					roleHighlights[targetPlayer] = entry
 					updateRoleLine(entry, character, color)
@@ -3029,7 +2883,7 @@ local function refreshRoleHighlights()
 					entry.highlight.FillTransparency = roleFillTransparency
 					entry.highlight.OutlineTransparency = roleOutlineTransparency
 					entry.label.Adornee = character:FindFirstChild("Head")
-					entry.labelText.Text = targetPlayer.DisplayName .. " • " .. role
+					entry.labelText.Text = targetPlayer.DisplayName .. " â€¢ " .. role
 					entry.labelText.TextColor3 = color
 					entry.labelText.Text = targetPlayer.DisplayName .. " - " .. role
 					updateRoleLine(entry, character, color)
@@ -3040,13 +2894,11 @@ local function refreshRoleHighlights()
 			end
 		end
 	end
-
 	roleShownCount = shown
 	if roleHighlightStatus then
-		roleHighlightStatus.Text = ("Role highlights on • %d players with exposed roles"):format(shown)
+		roleHighlightStatus.Text = ("Role highlights on â€¢ %d players with exposed roles"):format(shown)
 	end
 end
-
 local navButtons = {}
 local pagePanels = {
 	Main = frame,
@@ -3054,7 +2906,6 @@ local pagePanels = {
 	Settings = settingsPanel,
 	Player = playerPanel,
 }
-
 local function createNavButton(name, y)
 	local button = Instance.new("TextButton")
 	button.Name = name .. "Nav"
@@ -3072,12 +2923,10 @@ local function createNavButton(name, y)
 	navButtons[name] = button
 	return button
 end
-
 local mainNav = createNavButton("Main", 82)
 local tradeNav = createNavButton("Trade", 124)
 local playerNav = createNavButton("Player", 166)
 local settingsNav = createNavButton("Settings", 208)
-
 local function selectPage(pageName)
 	for name, panel in pairs(pagePanels) do
 		panel.Visible = name == pageName
@@ -3092,7 +2941,6 @@ local function selectPage(pageName)
 		refreshPlayerInfo()
 	end
 end
-
 local function updateRoleToggleButtons()
 	roleHighlightButton.Text = roleHighlightsEnabled and "Role Scanner: On" or "Role Scanner: Off"
 	roleHighlightButton.BackgroundColor3 = roleHighlightsEnabled
@@ -3111,31 +2959,26 @@ local function updateRoleToggleButtons()
 		and Color3.fromRGB(75, 165, 110)
 		or Color3.fromRGB(70, 135, 255)
 end
-
 table.insert(connections, roleHighlightButton.Activated:Connect(function()
 	roleHighlightsEnabled = not roleHighlightsEnabled
 	updateRoleToggleButtons()
 	refreshRoleHighlights()
 end))
-
 table.insert(connections, roleChamsButton.Activated:Connect(function()
 	roleChamsEnabled = not roleChamsEnabled
 	updateRoleToggleButtons()
 	refreshRoleHighlights()
 end))
-
 table.insert(connections, roleNamesButton.Activated:Connect(function()
 	roleNamesEnabled = not roleNamesEnabled
 	updateRoleToggleButtons()
 	refreshRoleHighlights()
 end))
-
 table.insert(connections, roleLinesButton.Activated:Connect(function()
 	roleLinesEnabled = not roleLinesEnabled
 	updateRoleToggleButtons()
 	refreshRoleHighlights()
 end))
-
 local function teleportToRole(roleName)
 	local localCharacter = player.Character
 	local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
@@ -3143,7 +2986,6 @@ local function teleportToRole(roleName)
 		roleHighlightStatus.Text = "Your character is not ready to teleport."
 		return
 	end
-
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
 		if targetPlayer ~= player then
 			local detectedRole = string.lower(readRole(targetPlayer) or "")
@@ -3164,18 +3006,14 @@ local function teleportToRole(roleName)
 			end
 		end
 	end
-
 	roleHighlightStatus.Text = "No active " .. roleName .. " was found."
 end
-
 table.insert(connections, teleportSheriffButton.Activated:Connect(function()
 	teleportToRole("Sheriff / Hero")
 end))
-
 table.insert(connections, teleportMurdererButton.Activated:Connect(function()
 	teleportToRole("Murderer")
 end))
-
 local function updateAutoPickupGunButton()
 	autoPickupGunButton.Text = autoPickupGunEnabled
 		and "Auto Pickup Dropped Gun: On"
@@ -3184,7 +3022,6 @@ local function updateAutoPickupGunButton()
 		and Color3.fromRGB(75, 165, 110)
 		or Color3.fromRGB(70, 135, 255)
 end
-
 table.insert(connections, autoPickupGunButton.Activated:Connect(function()
 	autoPickupGunEnabled = not autoPickupGunEnabled
 	updateAutoPickupGunButton()
@@ -3192,10 +3029,8 @@ table.insert(connections, autoPickupGunButton.Activated:Connect(function()
 		and "Auto pickup is on. Waiting for the dropped gun."
 		or "Auto pickup is off."
 end))
-
 updateRoleToggleButtons()
 updateAutoPickupGunButton()
-
 table.insert(connections, Players.PlayerRemoving:Connect(function(targetPlayer)
 	removeRoleHighlight(targetPlayer)
 	trackedInnocents[targetPlayer] = nil
@@ -3215,7 +3050,6 @@ table.insert(connections, Players.PlayerRemoving:Connect(function(targetPlayer)
 		trackedSheriff = nil
 	end
 end))
-
 local function requestGunScan(instance)
 	local canBeGunDrop = instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart")
 	if canBeGunDrop and isDroppedGunName(instance.Name) then
@@ -3225,10 +3059,8 @@ local function requestGunScan(instance)
 		gunScanRequested = true
 	end
 end
-
 table.insert(connections, Workspace.ChildAdded:Connect(requestGunScan))
 table.insert(connections, Workspace.ChildRemoved:Connect(requestGunScan))
-
 local gunChamElapsed = 0
 table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 	if not interfaceReady or (not gunChamEnabled and not autoPickupGunEnabled) then
@@ -3242,7 +3074,6 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		moveDroppedGunToPlayer(droppedGun)
 	end
 end))
-
 local roleRefreshElapsed = 0
 table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 	if not interfaceReady or not roleHighlightsEnabled then
@@ -3263,10 +3094,7 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		end
 	end
 end))
-
 local function findBuiltInTradeRoot()
-	-- MM2's visible headings are more reliable than its internal instance names.
-	-- Find the nearest panel that contains both offer headings.
 	local function containsOfferHeading(container, targetText)
 		for _, descendant in ipairs(container:GetDescendants()) do
 			if descendant:IsA("TextLabel") and normalizeItemName(descendant.Text) == targetText then
@@ -3275,7 +3103,6 @@ local function findBuiltInTradeRoot()
 		end
 		return false
 	end
-
 	for _, descendant in ipairs(playerGui:GetDescendants()) do
 		if descendant:IsA("TextLabel") and normalizeItemName(descendant.Text) == "your offer" then
 			local current = descendant.Parent
@@ -3290,7 +3117,6 @@ local function findBuiltInTradeRoot()
 			end
 		end
 	end
-
 	for _, descendant in ipairs(playerGui:GetDescendants()) do
 		if descendant:IsA("TextLabel") then
 			local isTradeUi, _, tradeRoot = findTradeSide(descendant)
@@ -3299,9 +3125,6 @@ local function findBuiltInTradeRoot()
 			end
 		end
 	end
-
-	-- Fallback for trade UIs whose offer containers do not include predictable
-	-- names. Prefer the largest visible GUI object named like a trade window.
 	local bestRoot = nil
 	local bestArea = 0
 	for _, descendant in ipairs(playerGui:GetDescendants()) do
@@ -3319,7 +3142,6 @@ local function findBuiltInTradeRoot()
 	end
 	return bestRoot
 end
-
 local function updateBuiltInTradeSummary()
 	if not tradeOverlayEnabled then
 		if gameTradeSummary and gameTradeSummary.Parent then
@@ -3328,7 +3150,6 @@ local function updateBuiltInTradeSummary()
 		gameTradeSummary = nil
 		return
 	end
-
 	local tradeRoot = findBuiltInTradeRoot()
 	if not tradeRoot then
 		if gameTradeSummary and gameTradeSummary.Parent then
@@ -3336,7 +3157,6 @@ local function updateBuiltInTradeSummary()
 		end
 		return
 	end
-
 	if not gameTradeSummary or gameTradeSummary.Parent ~= tradeRoot then
 		if gameTradeSummary and gameTradeSummary.Parent then
 			gameTradeSummary:Destroy()
@@ -3364,7 +3184,6 @@ local function updateBuiltInTradeSummary()
 		gameTradeSummary.AnchorPoint = Vector2.new(0.5, 0)
 		gameTradeSummary.Position = UDim2.new(0.5, 0, 0, 4)
 	end
-
 	local difference = lastTradeTheirValue - lastTradeYourValue
 	local differenceText = difference == 0 and "Even"
 		or difference > 0 and ("+%s for you"):format(formatValue(difference))
@@ -3378,7 +3197,6 @@ local function updateBuiltInTradeSummary()
 		)
 	gameTradeSummary.Visible = true
 end
-
 local function updateTradeValueSummary(yourTotal, theirTotal, demandSum, demandCount)
 	local averageDemand = 0
 	if demandCount and demandCount > 0 then
@@ -3391,7 +3209,6 @@ local function updateTradeValueSummary(yourTotal, theirTotal, demandSum, demandC
 		:format(formatValue(lastTradeYourValue), formatValue(lastTradeTheirValue), averageDemand)
 	updateBuiltInTradeSummary()
 end
-
 local function showTradeTotals(yourTotal, theirTotal, unknown, demandSum, demandCount)
 	yourTotal = yourTotal or 0
 	theirTotal = theirTotal or 0
@@ -3412,17 +3229,12 @@ local function showTradeTotals(yourTotal, theirTotal, unknown, demandSum, demand
 		table.insert(lines, "Unknown: " .. table.concat(unknown, ", "))
 	end
 	tradeResult.Text = table.concat(lines, "\n")
-	-- The game's trade frame can appear just after its data event, so retry once
-	-- after the UI has had a moment to render.
 	task.delay(0.5, function()
 		if not stopped then
 			updateBuiltInTradeSummary()
 		end
 	end)
 end
-
--- Offer slots are normally inserted/removed as the trade changes. Coalesce a
--- burst of UI changes into one scan instead of repeatedly walking PlayerGui.
 local tradeUiScanScheduled = false
 local function scheduleVisibleTradeRefresh()
 	if tradeUiScanScheduled or stopped or not tradeOverlayEnabled then
@@ -3442,7 +3254,6 @@ local function scheduleVisibleTradeRefresh()
 		end
 	end)
 end
-
 local function isTradeUiChange(instance)
 	if not interfaceReady then
 		return false
@@ -3469,7 +3280,6 @@ local function isTradeUiChange(instance)
 	end
 	return false
 end
-
 table.insert(connections, playerGui.DescendantAdded:Connect(function(instance)
 	if isTradeUiChange(instance) then
 		scheduleVisibleTradeRefresh()
@@ -3480,9 +3290,7 @@ table.insert(connections, playerGui.DescendantRemoving:Connect(function(instance
 		scheduleVisibleTradeRefresh()
 	end
 end))
-
 globalEnvironment.__BEANO_GUI_CLEANUP = stopScript
-
 local function calculateCurrentTrade()
 	local yourTotal, _, yourUnknown, yourDemandSum, yourDemandCount = parseItemList(yourItemsInput.Text)
 	local theirTotal, _, theirUnknown, theirDemandSum, theirDemandCount = parseItemList(theirItemsInput.Text)
@@ -3491,9 +3299,7 @@ local function calculateCurrentTrade()
 	for _, itemName in ipairs(theirUnknown) do table.insert(unknown, "Them: " .. itemName) end
 	showTradeTotals(yourTotal, theirTotal, unknown, yourDemandSum + theirDemandSum, yourDemandCount + theirDemandCount)
 end
-
 table.insert(connections, calculateTradeButton.Activated:Connect(calculateCurrentTrade))
-
 table.insert(connections, scanTradeButton.Activated:Connect(function()
 	local totals, names = scanVisibleTrade()
 	if #names.You == 0 and #names.Them == 0 and #names.Other == 0 then
@@ -3508,7 +3314,6 @@ table.insert(connections, scanTradeButton.Activated:Connect(function()
 	end
 	showTradeTotals(totals.You, totals.Them, unknown)
 end))
-
 local function summarizeOffer(offer, physicalNames)
 	local total = 0
 	local names = {}
@@ -3516,15 +3321,12 @@ local function summarizeOffer(offer, physicalNames)
 	local unknown = {}
 	local demandSum = 0
 	local demandCount = 0
-
 	for index, item in ipairs(offer or {}) do
 		if type(item) == "table" then
 			local itemName = tostring(item.ItemName or item.itemName or item.Name or item[1] or "")
 			local quantity = tonumber(item.Quantity or item.quantity or item[2]) or 1
 			local category = item.Category or item.category or item[3]
 			local rawEntry = lookupValue(itemName, category)
-			-- Prefer a physical label when the payload ID has no value, or when
-			-- the visible slot explicitly marks the item as Chroma.
 			local physicalName = physicalNames and physicalNames[index]
 			local rawNormalizedName = normalizeItemName(itemName)
 			local physicalNormalizedName = physicalName and normalizeItemName(physicalName) or ""
@@ -3558,21 +3360,17 @@ local function summarizeOffer(offer, physicalNames)
 			end
 		end
 	end
-
 	return total, names, details, unknown, demandSum, demandCount
 end
-
 local function handleTradePayload(payload)
 	if type(payload) ~= "table" then
 		return
 	end
-
 	local player1 = payload.Player1
 	local player2 = payload.Player2
 	if type(player1) ~= "table" or type(player2) ~= "table" then
 		return
 	end
-
 	local mine
 	local theirs
 	if player1.Player == player then
@@ -3584,7 +3382,6 @@ local function handleTradePayload(payload)
 	else
 		return
 	end
-
 	local _, visibleNames = scanVisibleTrade()
 	local yourPhysicalNames = visibleNames.You
 	local theirPhysicalNames = visibleNames.Them
@@ -3594,24 +3391,20 @@ local function handleTradePayload(payload)
 	if type(theirs.Offer) ~= "table" or #theirPhysicalNames ~= #theirs.Offer then
 		theirPhysicalNames = nil
 	end
-
 	local yourTotal, yourNames, yourDetails, yourUnknown, yourDemandSum, yourDemandCount = summarizeOffer(mine.Offer, yourPhysicalNames)
 	local theirTotal, theirNames, theirDetails, theirUnknown, theirDemandSum, theirDemandCount = summarizeOffer(theirs.Offer, theirPhysicalNames)
 	yourItemsInput.Text = table.concat(yourNames, ", ")
 	theirItemsInput.Text = table.concat(theirNames, ", ")
-
 	local unknown = {}
 	for _, itemName in ipairs(yourUnknown) do table.insert(unknown, "You: " .. itemName) end
 	for _, itemName in ipairs(theirUnknown) do table.insert(unknown, "Them: " .. itemName) end
 	showTradeTotals(yourTotal, theirTotal, unknown, yourDemandSum + theirDemandSum, yourDemandCount + theirDemandCount)
-
 	local detailLines = {"You: " .. ( #yourDetails == 0 and "(empty)" or table.concat(yourDetails, ", ") )}
 	table.insert(detailLines, "Them: " .. ( #theirDetails == 0 and "(empty)" or table.concat(theirDetails, ", ") ))
 	table.insert(detailLines, tradeResult.Text)
 	tradeResult.Text = table.concat(detailLines, "\n")
 	tradeUpdated.Text = "Trade event received - Locked: " .. tostring(payload.Locked == true)
 end
-
 local function resetTradeDisplay(message)
 	yourItemsInput.Text = ""
 	theirItemsInput.Text = ""
@@ -3623,7 +3416,6 @@ local function resetTradeDisplay(message)
 	tradeUpdated.Text = message or "Trade declined - values reset"
 	updateBuiltInTradeSummary()
 end
-
 local function tradePayloadWasDeclined(value)
 	if value == false then
 		return true
@@ -3649,7 +3441,6 @@ local function tradePayloadWasDeclined(value)
 	end
 	return false
 end
-
 local tradeFolder = ReplicatedStorage:FindFirstChild("Trade", true)
 if tradeFolder then
 	local startTradeEvent = tradeFolder:FindFirstChild("StartTrade")
@@ -3679,15 +3470,10 @@ if tradeFolder then
 		end
 	end
 end
-
--- Rayfield interface (requires an executor that supports loadstring and HttpGet).
--- Try the official short URL first and the official source as a fallback so a
--- temporary redirect failure does not leave the script running without a GUI.
 local function loadRayfieldLibrary()
 	if type(loadstring) ~= "function" then
 		return false, nil, "loadstring is unavailable in this environment"
 	end
-
 	local lastError = "unknown download error"
 	for _, url in ipairs({
 		"https://sirius.menu/rayfield",
@@ -3708,14 +3494,11 @@ local function loadRayfieldLibrary()
 	end
 	return false, nil, lastError
 end
-
 local rayfieldLoaded, Rayfield, rayfieldLoadError = loadRayfieldLibrary()
-
 if rayfieldLoaded and Rayfield then
 	local uiBuildSuccess, uiBuildError = xpcall(function()
 		rayfieldInterface = Rayfield
 		mainWindow.Visible = false
-
 	local Window = Rayfield:CreateWindow({
 		Name = "Beano GUI",
 		Icon = "sparkles",
@@ -3738,7 +3521,6 @@ if rayfieldLoaded and Rayfield then
 		},
 		KeySystem = false,
 	})
-
 	local MovementTab = Window:CreateTab("Movement", "person-standing")
 	MovementTab:CreateSection("Character movement")
 	local walkSpeedSlider = MovementTab:CreateSlider({
@@ -3792,7 +3574,6 @@ if rayfieldLoaded and Rayfield then
 			stopScript()
 		end,
 	})
-
 	local PlayerTab = Window:CreateTab("Player", "users")
 	PlayerTab:CreateSection("Roles")
 	PlayerTab:CreateToggle({
@@ -3847,7 +3628,6 @@ if rayfieldLoaded and Rayfield then
 			teleportToRole("Murderer")
 		end,
 	})
-
 	PlayerTab:CreateSection("Player actions")
 	local playerOptionMap = {}
 	local lastPlayerListSignature = ""
@@ -3867,7 +3647,6 @@ if rayfieldLoaded and Rayfield then
 		end
 		return options, newMap
 	end
-
 	local initialPlayerOptions
 	initialPlayerOptions, playerOptionMap = buildPlayerOptions()
 	lastPlayerListSignature = table.concat(initialPlayerOptions, "\n")
@@ -3882,7 +3661,6 @@ if rayfieldLoaded and Rayfield then
 		end,
 	})
 	selectedPlayer = playerOptionMap[initialPlayerOptions[1]]
-
 	local function notifyPlayerAction(title, content)
 		Rayfield:Notify({
 			Title = title,
@@ -3891,7 +3669,6 @@ if rayfieldLoaded and Rayfield then
 			Image = "users",
 		})
 	end
-
 	local function validSelectedPlayer()
 		if selectedPlayer and selectedPlayer.Parent == Players and selectedPlayer ~= player then
 			return selectedPlayer
@@ -3899,7 +3676,6 @@ if rayfieldLoaded and Rayfield then
 		notifyPlayerAction("No player selected", "Choose a current player from the dropdown first.")
 		return nil
 	end
-
 	PlayerTab:CreateButton({
 		Name = "Teleport to selected player",
 		Callback = function()
@@ -3948,7 +3724,6 @@ if rayfieldLoaded and Rayfield then
 				end
 				return
 			end
-
 			local character = player.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -3957,60 +3732,101 @@ if rayfieldLoaded and Rayfield then
 				notifyPlayerAction("Fling unavailable", "One of the characters is not currently loaded.")
 				return
 			end
-
 			flingInProgress = true
 			task.spawn(function()
 				local originalCFrame = root.CFrame
 				local originalAutoRotate = humanoid.AutoRotate
+				local originalPlatformStand = humanoid.PlatformStand
+				local targetStartPosition = targetRoot.Position
 				local collisionStates = {}
 				for _, descendant in ipairs(character:GetDescendants()) do
 					if descendant:IsA("BasePart") then
-						collisionStates[descendant] = descendant.CanCollide
-						descendant.CanCollide = false
+						collisionStates[descendant] = {
+							CanCollide = descendant.CanCollide,
+							CanTouch = descendant.CanTouch,
+						}
+						descendant.CanCollide = descendant == root
+						descendant.CanTouch = descendant == root
 					end
 				end
-
 				local angularVelocity = Instance.new("BodyAngularVelocity")
 				angularVelocity.Name = "BeanoFlingVelocity"
-				angularVelocity.MaxTorque = Vector3.new(0, math.huge, 0)
-				angularVelocity.P = 1250
-				angularVelocity.AngularVelocity = Vector3.new(0, 1000000, 0)
+				angularVelocity.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+				angularVelocity.P = 1000000
+				angularVelocity.AngularVelocity = Vector3.new(0, 9999, 0)
 				angularVelocity.Parent = root
+				local stabilizer = Instance.new("BodyPosition")
+				stabilizer.Name = "BeanoFlingStabilizer"
+				stabilizer.MaxForce = Vector3.new(1000000000, 1000000000, 1000000000)
+				stabilizer.P = 100000
+				stabilizer.D = 2500
+				stabilizer.Position = targetRoot.Position
+				stabilizer.Parent = root
 				humanoid.AutoRotate = false
-
+				humanoid.PlatformStand = true
+				local succeeded = false
+				local deadline = os.clock() + 5
+				local step = 0
 				pcall(function()
-					for step = 1, 30 do
+					while os.clock() < deadline do
 						if stopped or not flingInProgress or not root.Parent or not targetRoot.Parent then
 							break
 						end
-						local angle = step * math.pi * 0.55
-						root.CFrame = targetRoot.CFrame * CFrame.new(math.cos(angle) * 1.2, 0.5, math.sin(angle) * 1.2)
-						root.AssemblyLinearVelocity = Vector3.new(0, 80, 0)
+						local targetSpeed = targetRoot.AssemblyLinearVelocity.Magnitude
+						local targetDistance = (targetRoot.Position - targetStartPosition).Magnitude
+						if targetSpeed >= 120 or targetDistance >= 75 then
+							succeeded = true
+							break
+						end
+						step += 1
+						local phase = step % 4
+						local offset = phase == 0 and CFrame.new(0, 0.25, 0)
+							or phase == 1 and CFrame.new(0.8, 0, 0)
+							or phase == 2 and CFrame.new(-0.8, 0, 0)
+							or CFrame.new(0, -0.25, 0.8)
+						local contactCFrame = targetRoot.CFrame * offset
+						stabilizer.Position = contactCFrame.Position
+						root.CFrame = contactCFrame
+						root.AssemblyLinearVelocity = Vector3.zero
 						RunService.Heartbeat:Wait()
 					end
 				end)
-
+				if stabilizer.Parent then
+					stabilizer:Destroy()
+				end
 				if angularVelocity.Parent then
 					angularVelocity:Destroy()
 				end
-				for part, canCollide in pairs(collisionStates) do
+				for part, state in pairs(collisionStates) do
 					if part.Parent then
-						part.CanCollide = canCollide
+						part.CanCollide = state.CanCollide
+						part.CanTouch = state.CanTouch
 					end
 				end
 				if humanoid.Parent then
 					humanoid.AutoRotate = originalAutoRotate
+					humanoid.PlatformStand = originalPlatformStand
 				end
 				if root.Parent then
 					root.AssemblyLinearVelocity = Vector3.zero
 					root.AssemblyAngularVelocity = Vector3.zero
 					root.CFrame = originalCFrame
+					task.wait()
+					if root.Parent then
+						root.CFrame = originalCFrame
+					end
 				end
 				flingInProgress = false
+				if not stopped then
+					notifyPlayerAction(
+						succeeded and "Fling completed" or "Fling stopped",
+						succeeded and "The target was launched and your original position was restored."
+							or "The five-second attempt ended and your original position was restored."
+					)
+				end
 			end)
 		end,
 	})
-
 	local function refreshPlayerDropdown()
 		local options, newMap = buildPlayerOptions()
 		local signature = table.concat(options, "\n")
@@ -4027,7 +3843,6 @@ if rayfieldLoaded and Rayfield then
 			selectedPlayerDropdown:Set({selectedOption})
 		end
 	end
-
 	task.spawn(function()
 		while not stopped and rayfieldInterface == Rayfield do
 			task.wait(5)
@@ -4036,7 +3851,6 @@ if rayfieldLoaded and Rayfield then
 			end
 		end
 	end)
-
 	PlayerTab:CreateToggle({
 		Name = "Auto pickup dropped gun",
 		CurrentValue = autoPickupGunEnabled,
@@ -4095,7 +3909,6 @@ if rayfieldLoaded and Rayfield then
 			end
 		end,
 	})
-
 	local TradeTab = Window:CreateTab("Trade", "scale")
 	TradeTab:CreateSection("Supreme value calculator")
 	TradeTab:CreateToggle({
@@ -4171,7 +3984,28 @@ if rayfieldLoaded and Rayfield then
 			updateRayfieldTradeResult()
 		end,
 	})
-
+	local MiscTab = Window:CreateTab("Misc", "gamepad-2")
+	MiscTab:CreateSection("Games")
+	MiscTab:CreateButton({
+		Name = "Launch Minesweeper",
+		Callback = function()
+			local success, launchError = pcall(function()
+				local source = game:HttpGet("https://script.roscripts.io/jgKlZMO")
+				local loader, compileError = loadstring(source)
+				if not loader then
+					error(compileError or "Minesweeper source could not compile")
+				end
+				loader()
+			end)
+			Rayfield:Notify({
+				Title = success and "Minesweeper launched" or "Minesweeper failed",
+				Content = success and "The Minesweeper script was loaded."
+					or tostring(launchError):sub(1, 180),
+				Duration = 6,
+				Image = success and "gamepad-2" or "triangle-alert",
+			})
+		end,
+	})
 	local SettingsTab = Window:CreateTab("Settings", "settings")
 	SettingsTab:CreateSection("Interface")
 	SettingsTab:CreateLabel("Use the keybind below to show or hide the interface.", "keyboard")
@@ -4194,7 +4028,6 @@ if rayfieldLoaded and Rayfield then
 			Window.ModifyTheme(options[1] or "Amethyst")
 		end,
 	})
-
 	SettingsTab:CreateSection("Performance")
 	SettingsTab:CreateLabel("Higher intervals reduce script work; lower intervals react faster.", "gauge")
 	local movementIntervalSlider = SettingsTab:CreateSlider({
@@ -4265,7 +4098,6 @@ if rayfieldLoaded and Rayfield then
 	SettingsTab:CreateButton({
 		Name = "Apply low-lag preset",
 		Callback = function()
-			-- Turn off the two continuously rendered/enforced options first.
 			movementLockToggle:Set(false)
 			roleLinesToggle:Set(false)
 			movementIntervalSlider:Set(0.35)
@@ -4281,7 +4113,6 @@ if rayfieldLoaded and Rayfield then
 			})
 		end,
 	})
-
 	SettingsTab:CreateSection("Diagnostics")
 	SettingsTab:CreateButton({
 		Name = "Refresh and show runtime status",
@@ -4292,7 +4123,6 @@ if rayfieldLoaded and Rayfield then
 			local droppedGun = findDroppedGun()
 			updateDroppedGunCham(droppedGun)
 			updateBuiltInTradeSummary()
-
 			local trackedCount = 0
 			for _ in pairs(roleHighlights) do
 				trackedCount += 1
@@ -4313,16 +4143,11 @@ if rayfieldLoaded and Rayfield then
 			stopScript()
 		end,
 	})
-	-- The current Rayfield build loads configuration on its own after the window
-	-- finishes assembling. Do not trigger it a second time during startup.
 	interfaceReady = true
 	scheduleVisibleTradeRefresh()
-
-	-- gui is an unparented state container, so Rayfield remains the only UI.
 	end, function(message)
 		return tostring(message)
 	end)
-
 	if not uiBuildSuccess then
 		warn("Beano GUI startup error: " .. tostring(uiBuildError))
 		pcall(function()
