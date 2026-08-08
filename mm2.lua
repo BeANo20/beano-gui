@@ -103,6 +103,8 @@ local silentState = {
 	ShootBusy = false,
 	LastShotAt = 0,
 	ForcedTarget = nil,
+	ShotWindowUntil = 0,
+	ShotWindowDuration = 0.22,
 }
 local silentDrawings = {}
 local function getHumanoid()
@@ -762,6 +764,18 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 	end
 end))
 local silentMouse = player:GetMouse()
+local function silentHasEquippedGun()
+	local character = player.Character
+	local gun = character and character:FindFirstChild("Gun")
+	return gun ~= nil and gun:IsA("Tool")
+end
+local function silentCanRedirect(state)
+	return state
+		and state.Enabled
+		and state.Method ~= "Mouse.Hit/Target"
+		and os.clock() <= (state.ShotWindowUntil or 0)
+		and silentHasEquippedGun()
+end
 local function silentTargetPosition(targetPart, state)
 	local position = targetPart.Position
 	if state.Prediction then
@@ -861,6 +875,9 @@ local function hideSilentDrawings()
 	end
 end
 local function updateSilentVisuals()
+	if silentState.Method == "Mouse.Hit/Target" then
+		silentState.Method = "Raycast"
+	end
 	if not silentState.Enabled then
 		hideSilentDrawings()
 		return
@@ -892,6 +909,15 @@ silentState.Mouse = silentMouse
 silentState.GetTarget = silentClosestTarget
 silentState.GetTargetPosition = silentTargetPosition
 globalEnvironment.__BEANO_SILENT_STATE = silentState
+table.insert(connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+		return
+	end
+	local state = globalEnvironment.__BEANO_SILENT_STATE
+	if state and state.Enabled and silentHasEquippedGun() then
+		state.ShotWindowUntil = os.clock() + state.ShotWindowDuration
+	end
+end))
 local silentHookMetamethod = globalEnvironment.hookmetamethod
 local silentNewClosure = globalEnvironment.newcclosure or function(callback)
 	return callback
@@ -907,7 +933,7 @@ if type(silentHookMetamethod) == "function"
 		oldNamecall = silentHookMetamethod(game, "__namecall", silentNewClosure(function(self, ...)
 			local state = globalEnvironment.__BEANO_SILENT_STATE
 			local method = silentGetNamecallMethod()
-			if state and state.Enabled and self == Workspace and not silentCheckCaller()
+			if silentCanRedirect(state) and self == Workspace and not silentCheckCaller()
 				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
 				local targetPart = state.GetTarget and state.GetTarget()
 				if targetPart then
@@ -939,35 +965,9 @@ if type(silentHookMetamethod) == "function"
 		globalEnvironment.__BEANO_SILENT_NAMECALL_HOOKED = true
 	end
 end
-if type(silentHookMetamethod) == "function"
-	and type(silentCheckCaller) == "function"
-	and not globalEnvironment.__BEANO_SILENT_INDEX_HOOKED then
-	local hookSuccess = pcall(function()
-		local oldIndex
-		oldIndex = silentHookMetamethod(game, "__index", silentNewClosure(function(self, key)
-			local state = globalEnvironment.__BEANO_SILENT_STATE
-			if state and state.Enabled and state.Method == "Mouse.Hit/Target"
-				and self == state.Mouse and not silentCheckCaller()
-				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
-				local targetPart = state.GetTarget and state.GetTarget()
-				if targetPart then
-					if key == "Target" or key == "target" then
-						return targetPart
-					elseif key == "Hit" or key == "hit" then
-						local position = state.GetTargetPosition(targetPart, state)
-						return CFrame.new(position)
-					end
-				end
-			end
-			return oldIndex(self, key)
-		end))
-	end)
-	if hookSuccess then
-		globalEnvironment.__BEANO_SILENT_INDEX_HOOKED = true
-	end
-end
+-- Mouse.Hit/Target hooks also affect Roblox's camera scripts, so Silent only redirects
+-- a gun raycast during a short real click window.
 silentState.HookSupported = globalEnvironment.__BEANO_SILENT_NAMECALL_HOOKED == true
-	and globalEnvironment.__BEANO_SILENT_INDEX_HOOKED == true
 table.insert(connections, RunService.RenderStepped:Connect(updateSilentVisuals))
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
@@ -1472,10 +1472,9 @@ silentState.ShootMurderer = function()
 
 		-- Fallback for gun versions that fire through Tool.Activated instead of the known MM2 remote.
 		local previousEnabled = silentState.Enabled
-		local previousMethod = silentState.Method
 		silentState.Enabled = true
-		silentState.Method = "Mouse.Hit/Target"
 		silentState.ForcedTarget = currentTargetPart
+		silentState.ShotWindowUntil = os.clock() + 0.5
 		pcall(function()
 			gun:Activate()
 		end)
@@ -1483,7 +1482,6 @@ silentState.ShootMurderer = function()
 			if silentState.ForcedTarget == currentTargetPart then
 				silentState.ForcedTarget = nil
 			end
-			silentState.Method = previousMethod
 			silentState.Enabled = previousEnabled
 		end)
 	end)
@@ -2475,13 +2473,16 @@ if rayfieldLoaded and Rayfield then
 		end,
 	})
 	CombatTab:CreateSection("Silent")
-	CombatTab:CreateLabel("Universal ray and Mouse.Hit aim redirection from your supplied script.", "crosshair")
+	CombatTab:CreateLabel("Shot-only ray redirection. It does not change your camera or screen position.", "crosshair")
 	local silentToggle = CombatTab:CreateToggle({
 		Name = "Silent",
 		CurrentValue = silentState.Enabled,
 		Flag = "beano_silent_enabled",
 		Callback = function(value)
 			silentState.Enabled = value
+			if silentState.Method == "Mouse.Hit/Target" then
+				silentState.Method = "Raycast"
+			end
 			if not value then
 				hideSilentDrawings()
 			elseif not silentState.HookSupported then
@@ -2559,12 +2560,13 @@ if rayfieldLoaded and Rayfield then
 	})
 	CombatTab:CreateDropdown({
 		Name = "Silent aim method",
-		Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList", "Mouse.Hit/Target"},
+		Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList"},
 		CurrentOption = {silentState.Method},
 		MultipleOptions = false,
 		Flag = "beano_silent_method",
 		Callback = function(options)
-			silentState.Method = options[1] or "Raycast"
+			local selectedMethod = options[1] or "Raycast"
+			silentState.Method = selectedMethod == "Mouse.Hit/Target" and "Raycast" or selectedMethod
 		end,
 	})
 	CombatTab:CreateSlider({
