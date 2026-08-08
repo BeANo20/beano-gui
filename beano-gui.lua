@@ -4301,7 +4301,7 @@ if rayfieldLoaded and Rayfield then
 		window.Name = "Window"
 		window.AnchorPoint = Vector2.new(0.5, 0.5)
 		window.Position = UDim2.fromScale(0.5, 0.5)
-		window.Size = UDim2.fromOffset(410, 460)
+		window.Size = UDim2.fromOffset(410, 520)
 		window.BackgroundColor3 = Color3.fromRGB(29, 20, 38)
 		window.BorderSizePixel = 0
 		window.Parent = miniGui
@@ -4432,7 +4432,7 @@ if rayfieldLoaded and Rayfield then
 				return false
 			end
 			active = false
-			statusLabel.Text = result == "Draw" and "Draw! Close and reopen to play again."
+			statusLabel.Text = result == "Draw" and "Draw! Press Play Again for a new board."
 				or result == "X" and "You won!"
 				or "Computer won!"
 			return true
@@ -4474,6 +4474,11 @@ if rayfieldLoaded and Rayfield then
 				end
 			end)
 		end
+		local replayButton = makeGameButton(body, "PLAY AGAIN", UDim2.new(0.5, -110, 0, 382), UDim2.fromOffset(220, 42))
+		replayButton.Activated:Connect(function()
+			miniGui:Destroy()
+			launchTicTacToe()
+		end)
 	end
 	local function launchMemoryMatch()
 		local miniGui, body = createMiniGameShell("Memory Match")
@@ -4536,6 +4541,11 @@ if rayfieldLoaded and Rayfield then
 				end
 			end)
 		end
+		local replayButton = makeGameButton(body, "PLAY AGAIN", UDim2.new(0.5, -110, 0, 382), UDim2.fromOffset(220, 42))
+		replayButton.Activated:Connect(function()
+			miniGui:Destroy()
+			launchMemoryMatch()
+		end)
 	end
 	local function launchReactionTest()
 		local miniGui, body = createMiniGameShell("Reaction Test")
@@ -4580,9 +4590,15 @@ if rayfieldLoaded and Rayfield then
 				end
 			end)
 		end)
+		local replayButton = makeGameButton(body, "RESET GAME", UDim2.new(0.5, -110, 0, 330), UDim2.fromOffset(220, 48))
+		replayButton.Activated:Connect(function()
+			roundToken += 1
+			miniGui:Destroy()
+			launchReactionTest()
+		end)
 	end
 	local function launchHigherLower()
-		local _, body = createMiniGameShell("Higher or Lower")
+		local miniGui, body = createMiniGameShell("Higher or Lower")
 		local score = 0
 		local currentValue = math.random(1, 99)
 		local title = makeGameLabel(body, "Will the next number be higher or lower?", UDim2.fromOffset(0, 12), UDim2.new(1, 0, 0, 52), 17)
@@ -4616,6 +4632,11 @@ if rayfieldLoaded and Rayfield then
 		end)
 		lowerButton.Activated:Connect(function()
 			makeGuess(false)
+		end)
+		local replayButton = makeGameButton(body, "PLAY AGAIN", UDim2.new(0.5, -110, 0, 350), UDim2.fromOffset(220, 48))
+		replayButton.Activated:Connect(function()
+			miniGui:Destroy()
+			launchHigherLower()
 		end)
 	end
 	local ArcadeTab = Window:CreateTab("Arcade", "gamepad-2")
