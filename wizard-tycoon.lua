@@ -214,6 +214,42 @@ local function moveTo(part)
 	return true
 end
 
+local function collectMoneyAndReturn(collectButton)
+	if state.Stopped or not collectButton or not collectButton:IsA("BasePart") or not collectButton.Parent then
+		return false
+	end
+
+	local character = player.Character
+	local rootPart = getRootPart()
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not rootPart or not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+
+	local savedCFrame = rootPart.CFrame
+	rootPart.AssemblyLinearVelocity = Vector3.zero
+	rootPart.AssemblyAngularVelocity = Vector3.zero
+	rootPart.CFrame = collectButton.CFrame + TELEPORT_OFFSET
+
+	-- Give the collection hitbox enough time to register before restoring position.
+	task.wait(math.max(state.PadDelay, 0.12))
+
+	if player.Character ~= character or not rootPart.Parent or humanoid.Health <= 0 then
+		return true
+	end
+
+	rootPart.AssemblyLinearVelocity = Vector3.zero
+	rootPart.AssemblyAngularVelocity = Vector3.zero
+	rootPart.CFrame = savedCFrame
+	RunService.Heartbeat:Wait()
+	if player.Character == character and rootPart.Parent and humanoid.Health > 0 then
+		rootPart.AssemblyLinearVelocity = Vector3.zero
+		rootPart.AssemblyAngularVelocity = Vector3.zero
+		rootPart.CFrame = savedCFrame
+	end
+	return true
+end
+
 local function getTeamFolderName()
 	local candidates = {state.TeamName}
 	if player.Team then
@@ -571,8 +607,7 @@ local function runLoop(id)
 		if state.MoneyCollectEnabled and tycoon then
 			local collectButton = getCollectButton(tycoon)
 			if collectButton then
-				didWork = moveTo(collectButton) or didWork
-				task.wait(state.PadDelay)
+				didWork = collectMoneyAndReturn(collectButton) or didWork
 			end
 		end
 
