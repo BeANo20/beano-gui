@@ -54,6 +54,9 @@ local state = {
 	ButtonClaimEnabled = true,
 	MoneyCollectEnabled = true,
 	FlagCollectEnabled = false,
+	AutoRebirthEnabled = false,
+	RebirthInterval = 2,
+	LastRebirthAt = 0,
 	VisitFlagHitboxes = true,
 	VisitClaimHitboxes = true,
 	PadDelay = 0.05,
@@ -837,6 +840,31 @@ local function runFlagPass()
 	end)
 end
 
+local function fireRebirth(showResult)
+	if state.Stopped then
+		return false
+	end
+	local rebirthRemote = state.RebirthRemote
+	if not rebirthRemote or not rebirthRemote.Parent then
+		if showResult then
+			notify("Rebirth unavailable", "RemoteSignals.Rebirth was not found.", "triangle-alert")
+		end
+		return false
+	end
+
+	local success, rebirthError = pcall(function()
+		rebirthRemote:FireServer()
+	end)
+	if showResult then
+		if success then
+			notify("Rebirth requested", "The rebirth event was sent to the server.", "refresh-cw")
+		else
+			notify("Rebirth failed", rebirthError, "triangle-alert")
+		end
+	end
+	return success
+end
+
 local function clearSelectedTycoon()
 	setRunning(false)
 	state.ActiveTycoon = nil
@@ -849,6 +877,9 @@ local function resetDefaults()
 	state.ButtonClaimEnabled = true
 	state.MoneyCollectEnabled = true
 	state.FlagCollectEnabled = false
+	state.AutoRebirthEnabled = false
+	state.RebirthInterval = 2
+	state.LastRebirthAt = 0
 	state.VisitFlagHitboxes = true
 	state.VisitClaimHitboxes = true
 	state.PadDelay = 0.05
@@ -859,6 +890,8 @@ local function resetDefaults()
 		controls.ButtonClaim:Set(true)
 		controls.MoneyCollect:Set(true)
 		controls.FlagCollect:Set(false)
+		controls.AutoRebirth:Set(false)
+		controls.RebirthInterval:Set(2)
 		controls.VisitFlags:Set(true)
 		controls.VisitClaims:Set(true)
 		controls.PadDelay:Set(0.05)
@@ -917,6 +950,7 @@ if remoteSignals then
 	local tycoonClaimer = remoteSignals:FindFirstChild("TycoonClaimer") or remoteSignals:WaitForChild("TycoonClaimer", 5)
 	local teamNeutrality = remoteSignals:FindFirstChild("TeamNeutrality") or remoteSignals:WaitForChild("TeamNeutrality", 5)
 	local soundReplicator = remoteSignals:FindFirstChild("SoundReplicator") or remoteSignals:WaitForChild("SoundReplicator", 5)
+	local rebirthRemote = remoteSignals:FindFirstChild("Rebirth") or remoteSignals:WaitForChild("Rebirth", 5)
 	if tycoonClaimer and tycoonClaimer:IsA("RemoteEvent") then
 		state.TycoonClaimer = tycoonClaimer
 	end
@@ -925,6 +959,9 @@ if remoteSignals then
 	end
 	if soundReplicator and soundReplicator:IsA("RemoteEvent") then
 		state.SoundReplicator = soundReplicator
+	end
+	if rebirthRemote and rebirthRemote:IsA("RemoteEvent") then
+		state.RebirthRemote = rebirthRemote
 	end
 end
 
@@ -1032,6 +1069,36 @@ local uiSuccess, uiError = xpcall(function()
 		Flag = "beano_wizard_collect_flags",
 		Callback = function(value)
 			state.FlagCollectEnabled = value == true
+		end,
+	})
+	AutomationTab:CreateSection("Rebirth")
+	controls.AutoRebirth = AutomationTab:CreateToggle({
+		Name = "Auto rebirth",
+		CurrentValue = state.AutoRebirthEnabled,
+		Flag = "beano_wizard_auto_rebirth",
+		Callback = function(value)
+			state.AutoRebirthEnabled = value == true
+			state.LastRebirthAt = 0
+			if state.AutoRebirthEnabled and not state.RebirthRemote then
+				notify("Auto rebirth unavailable", "RemoteSignals.Rebirth was not found.", "triangle-alert")
+			end
+		end,
+	})
+	controls.RebirthInterval = AutomationTab:CreateSlider({
+		Name = "Rebirth interval",
+		Range = {0.5, 30},
+		Increment = 0.5,
+		Suffix = " seconds",
+		CurrentValue = state.RebirthInterval,
+		Flag = "beano_wizard_rebirth_interval",
+		Callback = function(value)
+			state.RebirthInterval = math.max(tonumber(value) or 2, 0.5)
+		end,
+	})
+	AutomationTab:CreateButton({
+		Name = "Rebirth once now",
+		Callback = function()
+			fireRebirth(true)
 		end,
 	})
 	AutomationTab:CreateSection("Timing")
@@ -1348,6 +1415,18 @@ local uiSuccess, uiError = xpcall(function()
 			end
 		end
 	end)
+	task.spawn(function()
+		while not state.Stopped do
+			task.wait(0.25)
+			if state.AutoRebirthEnabled and state.RebirthRemote then
+				local now = os.clock()
+				if state.LastRebirthAt == 0 or now - state.LastRebirthAt >= state.RebirthInterval then
+					state.LastRebirthAt = now
+					fireRebirth(false)
+				end
+			end
+		end
+	end)
 
 	local SettingsTab = Window:CreateTab("Settings", "settings")
 	SettingsTab:CreateSection("Interface")
@@ -1381,4 +1460,7 @@ if not remoteSignals then
 	notify("Limited game detection", "RemoteSignals was not found. Manual base selection and Workspace automation remain available.", "triangle-alert")
 elseif not state.SoundReplicator then
 	notify("Owned-base scan unavailable", "SoundReplicator was not found, so use the left or right base buttons.", "triangle-alert")
+end
+if remoteSignals and not state.RebirthRemote then
+	notify("Auto rebirth unavailable", "RemoteSignals.Rebirth was not found in this server.", "triangle-alert")
 end
