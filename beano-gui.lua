@@ -80,7 +80,7 @@ local killAuraEnabled = false
 local killAuraRadius = 14
 local killAuraInterval = 0.15
 local coinAuraEnabled = false
-local coinAuraRadius = 30
+local coinAuraRadius = 10
 local coinAuraInterval = 0.2
 local coinAuraMaxPerTick = 8
 local coinCandidates = {}
@@ -4159,6 +4159,7 @@ if rayfieldLoaded and Rayfield then
 	})
 	local AutomationTab = Window:CreateTab("Automation", "orbit")
 	AutomationTab:CreateSection("Coin collection")
+	AutomationTab:CreateLabel("Fixed 10-stud range with balanced scan timing.", "circle-dollar-sign")
 	AutomationTab:CreateToggle({
 		Name = "Coin collection aura",
 		CurrentValue = coinAuraEnabled,
@@ -4176,38 +4177,6 @@ if rayfieldLoaded and Rayfield then
 					})
 				end
 			end
-		end,
-	})
-	AutomationTab:CreateSlider({
-		Name = "Coin aura radius",
-		Range = {5, 75},
-		Increment = 5,
-		Suffix = " studs",
-		CurrentValue = coinAuraRadius,
-		Flag = "beano_coin_aura_radius",
-		Callback = function(value)
-			coinAuraRadius = value
-		end,
-	})
-	AutomationTab:CreateSlider({
-		Name = "Coins per scan",
-		Range = {1, 15},
-		Increment = 1,
-		CurrentValue = coinAuraMaxPerTick,
-		Flag = "beano_coin_aura_limit",
-		Callback = function(value)
-			coinAuraMaxPerTick = value
-		end,
-	})
-	AutomationTab:CreateSlider({
-		Name = "Coin scan interval",
-		Range = {0.1, 1},
-		Increment = 0.1,
-		Suffix = " sec",
-		CurrentValue = coinAuraInterval,
-		Flag = "beano_coin_aura_interval",
-		Callback = function(value)
-			coinAuraInterval = value
 		end,
 	})
 	local TradeTab = Window:CreateTab("Trade", "scale")
