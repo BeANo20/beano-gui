@@ -400,6 +400,11 @@ local uiSuccess, uiError = xpcall(function()
 		Name = "Stop and unload Wizard Tycoon",
 		Callback = stopScript,
 	})
+	task.defer(function()
+		pcall(function()
+			Rayfield:LoadConfiguration()
+		end)
+	end)
 end, formatError)
 
 if not uiSuccess then
