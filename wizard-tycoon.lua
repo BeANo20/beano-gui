@@ -52,7 +52,10 @@ local state = {
 	TeamName = "Unknown",
 	CoinSignalCount = 0,
 	ButtonClaimEnabled = true,
-	MoneyCollectEnabled = true,
+	MoneyCollectEnabled = false,
+	MoneyCollectInterval = 1.5,
+	LastMoneyCollectAt = 0,
+	MoneyCollectInProgress = false,
 	FlagCollectEnabled = false,
 	AutoRebirthEnabled = false,
 	RebirthInterval = 2,
@@ -215,7 +218,7 @@ local function moveTo(part)
 end
 
 local function collectMoneyAndReturn(collectButton)
-	if state.Stopped or not collectButton or not collectButton:IsA("BasePart") or not collectButton.Parent then
+	if state.Stopped or state.MoneyCollectInProgress or not collectButton or not collectButton:IsA("BasePart") or not collectButton.Parent then
 		return false
 	end
 
@@ -226,26 +229,34 @@ local function collectMoneyAndReturn(collectButton)
 		return false
 	end
 
-	local savedCFrame = rootPart.CFrame
-	rootPart.AssemblyLinearVelocity = Vector3.zero
-	rootPart.AssemblyAngularVelocity = Vector3.zero
-	rootPart.CFrame = collectButton.CFrame + TELEPORT_OFFSET
+	state.MoneyCollectInProgress = true
+	local success, collectError = xpcall(function()
+		local savedCFrame = rootPart.CFrame
+		rootPart.AssemblyLinearVelocity = Vector3.zero
+		rootPart.AssemblyAngularVelocity = Vector3.zero
+		rootPart.CFrame = collectButton.CFrame + TELEPORT_OFFSET
 
-	-- Give the collection hitbox enough time to register before restoring position.
-	task.wait(math.max(state.PadDelay, 0.12))
+		-- Give the collection hitbox enough time to register before restoring position.
+		task.wait(math.max(state.PadDelay, 0.12))
 
-	if player.Character ~= character or not rootPart.Parent or humanoid.Health <= 0 then
-		return true
-	end
+		if player.Character ~= character or not rootPart.Parent or humanoid.Health <= 0 then
+			return
+		end
 
-	rootPart.AssemblyLinearVelocity = Vector3.zero
-	rootPart.AssemblyAngularVelocity = Vector3.zero
-	rootPart.CFrame = savedCFrame
-	RunService.Heartbeat:Wait()
-	if player.Character == character and rootPart.Parent and humanoid.Health > 0 then
 		rootPart.AssemblyLinearVelocity = Vector3.zero
 		rootPart.AssemblyAngularVelocity = Vector3.zero
 		rootPart.CFrame = savedCFrame
+		RunService.Heartbeat:Wait()
+		if player.Character == character and rootPart.Parent and humanoid.Health > 0 then
+			rootPart.AssemblyLinearVelocity = Vector3.zero
+			rootPart.AssemblyAngularVelocity = Vector3.zero
+			rootPart.CFrame = savedCFrame
+		end
+	end, formatError)
+	state.MoneyCollectInProgress = false
+	if not success then
+		warn("Beano Wizard Tycoon money collection error: " .. tostring(collectError))
+		return false
 	end
 	return true
 end
@@ -910,7 +921,9 @@ end
 local function resetDefaults()
 	setRunning(false)
 	state.ButtonClaimEnabled = true
-	state.MoneyCollectEnabled = true
+	state.MoneyCollectEnabled = false
+	state.MoneyCollectInterval = 1.5
+	state.LastMoneyCollectAt = 0
 	state.FlagCollectEnabled = false
 	state.AutoRebirthEnabled = false
 	state.RebirthInterval = 2
@@ -923,7 +936,7 @@ local function resetDefaults()
 	state.FlagCacheTime = 0
 	pcall(function()
 		controls.ButtonClaim:Set(true)
-		controls.MoneyCollect:Set(true)
+		controls.MoneyCollect:Set(false)
 		controls.FlagCollect:Set(false)
 		controls.AutoRebirth:Set(false)
 		controls.RebirthInterval:Set(2)
@@ -1083,7 +1096,7 @@ local uiSuccess, uiError = xpcall(function()
 	})
 	AutomationTab:CreateSection("Automation modules")
 	controls.ButtonClaim = AutomationTab:CreateToggle({
-		Name = "Buy free tycoon pads",
+		Name = "Teleport to free purchase pads",
 		CurrentValue = state.ButtonClaimEnabled,
 		Flag = "beano_wizard_buy_pads",
 		Callback = function(value)
@@ -1091,13 +1104,18 @@ local uiSuccess, uiError = xpcall(function()
 		end,
 	})
 	controls.MoneyCollect = AutomationTab:CreateToggle({
-		Name = "Collect tycoon money",
+		Name = "Auto collect money (save and return)",
 		CurrentValue = state.MoneyCollectEnabled,
 		Flag = "beano_wizard_collect_money",
 		Callback = function(value)
 			state.MoneyCollectEnabled = value == true
+			state.LastMoneyCollectAt = 0
+			updateStatus(state.MoneyCollectEnabled
+				and "Background money collection enabled. Select your tycoon if needed."
+				or "Background money collection disabled.")
 		end,
 	})
+	AutomationTab:CreateLabel("Money collection also runs while master automation is off, then restores your saved position.", "circle-dollar-sign")
 	controls.FlagCollect = AutomationTab:CreateToggle({
 		Name = "Collect every base flag",
 		CurrentValue = state.FlagCollectEnabled,
@@ -1447,6 +1465,29 @@ local uiSuccess, uiError = xpcall(function()
 			task.wait(state.ESPRefreshInterval)
 			if not state.Stopped then
 				pcall(refreshPlayerESP)
+			end
+		end
+	end)
+	task.spawn(function()
+		while not state.Stopped do
+			task.wait(0.2)
+			if state.MoneyCollectEnabled
+				and not state.Running
+				and not state.ScanningForTycoon
+				and not state.OnePassRunning
+				and not state.FlingInProgress
+			then
+				local tycoon = state.ActiveTycoon
+				if tycoon and tycoon:IsDescendantOf(workspace) then
+					local now = os.clock()
+					if state.LastMoneyCollectAt == 0 or now - state.LastMoneyCollectAt >= state.MoneyCollectInterval then
+						local collectButton = getCollectButton(tycoon)
+						if collectButton then
+							state.LastMoneyCollectAt = now
+							collectMoneyAndReturn(collectButton)
+						end
+					end
+				end
 			end
 		end
 	end)
