@@ -91,7 +91,7 @@ local silentState = {
 	TeamCheck = false,
 	VisibleCheck = false,
 	TargetPart = "HumanoidRootPart",
-	Method = "Raycast",
+	Method = "Gun remote",
 	FOVRadius = 130,
 	FOVVisible = false,
 	ShowTarget = false,
@@ -103,10 +103,10 @@ local silentState = {
 	ShootBusy = false,
 	LastShotAt = 0,
 	ForcedTarget = nil,
-	ShotWindowUntil = 0,
-	ShotWindowDuration = 0.22,
 }
 local silentDrawings = {}
+local legacySilentState = {Enabled = false}
+local GUN_DROP_NAMES = {"GunDrop", "DroppedGun", "Gun"}
 local function getHumanoid()
 	local character = player.Character
 	if not character then
@@ -192,7 +192,10 @@ local function stopScript()
 	silentState.ShootMurdererEnabled = false
 	silentState.ShootBusy = false
 	silentState.ForcedTarget = nil
-	if globalEnvironment.__BEANO_SILENT_STATE == silentState then
+	if globalEnvironment.__BEANO_SAFE_SILENT_STATE == silentState then
+		globalEnvironment.__BEANO_SAFE_SILENT_STATE = nil
+	end
+	if globalEnvironment.__BEANO_SILENT_STATE == legacySilentState then
 		globalEnvironment.__BEANO_SILENT_STATE = nil
 	end
 	for _, drawing in pairs(silentDrawings) do
@@ -763,18 +766,24 @@ table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 		coinAuraElapsed = 0
 	end
 end))
-local silentMouse = player:GetMouse()
-local function silentHasEquippedGun()
+local function silentEquippedGunRemote()
 	local character = player.Character
 	local gun = character and character:FindFirstChild("Gun")
-	return gun ~= nil and gun:IsA("Tool")
-end
-local function silentCanRedirect(state)
-	return state
-		and state.Enabled
-		and state.Method ~= "Mouse.Hit/Target"
-		and os.clock() <= (state.ShotWindowUntil or 0)
-		and silentHasEquippedGun()
+	if not gun or not gun:IsA("Tool") then
+		return nil
+	end
+	local knifeLocal = gun:FindFirstChild("KnifeLocal", true)
+	local createBeam = knifeLocal and knifeLocal:FindFirstChild("CreateBeam", true)
+	local knownRemote = createBeam and createBeam:FindFirstChild("RemoteFunction", true)
+	if knownRemote and (knownRemote:IsA("RemoteFunction") or knownRemote:IsA("RemoteEvent")) then
+		return knownRemote
+	end
+	for _, descendant in ipairs(gun:GetDescendants()) do
+		if descendant:IsA("RemoteFunction") or descendant:IsA("RemoteEvent") then
+			return descendant
+		end
+	end
+	return nil
 end
 local function silentTargetPosition(targetPart, state)
 	local position = targetPart.Position
@@ -794,7 +803,7 @@ local function silentIsVisible(targetPart)
 	return #obscuring == 0
 end
 local function silentClosestTarget()
-	local state = globalEnvironment.__BEANO_SILENT_STATE
+	local state = silentState
 	local camera = Workspace.CurrentCamera
 	if not state or not state.Enabled or not camera then
 		return nil
@@ -875,9 +884,6 @@ local function hideSilentDrawings()
 	end
 end
 local function updateSilentVisuals()
-	if silentState.Method == "Mouse.Hit/Target" then
-		silentState.Method = "Raycast"
-	end
 	if not silentState.Enabled then
 		hideSilentDrawings()
 		return
@@ -905,19 +911,12 @@ local function updateSilentVisuals()
 		marker.Visible = false
 	end
 end
-silentState.Mouse = silentMouse
-silentState.GetTarget = silentClosestTarget
-silentState.GetTargetPosition = silentTargetPosition
-globalEnvironment.__BEANO_SILENT_STATE = silentState
-table.insert(connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-		return
-	end
-	local state = globalEnvironment.__BEANO_SILENT_STATE
-	if state and state.Enabled and silentHasEquippedGun() then
-		state.ShotWindowUntil = os.clock() + state.ShotWindowDuration
-	end
-end))
+	silentState.GetTarget = silentClosestTarget
+	silentState.GetTargetPosition = silentTargetPosition
+-- Older Beano runs may have camera-wide hooks installed. Keep their shared state
+-- disabled and use a separate state object for the gun-remote-only implementation.
+globalEnvironment.__BEANO_SILENT_STATE = legacySilentState
+globalEnvironment.__BEANO_SAFE_SILENT_STATE = silentState
 local silentHookMetamethod = globalEnvironment.hookmetamethod
 local silentNewClosure = globalEnvironment.newcclosure or function(callback)
 	return callback
@@ -927,34 +926,25 @@ local silentGetNamecallMethod = globalEnvironment.getnamecallmethod
 if type(silentHookMetamethod) == "function"
 	and type(silentCheckCaller) == "function"
 	and type(silentGetNamecallMethod) == "function"
-	and not globalEnvironment.__BEANO_SILENT_NAMECALL_HOOKED then
+	and not globalEnvironment.__BEANO_SAFE_SILENT_REMOTE_HOOKED then
 	local hookSuccess = pcall(function()
 		local oldNamecall
 		oldNamecall = silentHookMetamethod(game, "__namecall", silentNewClosure(function(self, ...)
-			local state = globalEnvironment.__BEANO_SILENT_STATE
+			local state = globalEnvironment.__BEANO_SAFE_SILENT_STATE
 			local method = silentGetNamecallMethod()
-			if silentCanRedirect(state) and self == Workspace and not silentCheckCaller()
+			local gunRemote = silentEquippedGunRemote()
+			if state and state.Enabled and gunRemote and self == gunRemote and not silentCheckCaller()
+				and (method == "InvokeServer" or method == "FireServer")
 				and math.random(1, 100) <= math.clamp(state.HitChance, 0, 100) then
 				local targetPart = state.GetTarget and state.GetTarget()
 				if targetPart then
 					local args = {...}
 					local targetPosition = state.GetTargetPosition(targetPart, state)
-					if method == "Raycast" and state.Method == "Raycast"
-						and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
-						args[2] = (targetPosition - args[1]).Unit * 1000
-						return oldNamecall(self, table.unpack(args))
-					elseif (method == "FindPartOnRay" or method == "findPartOnRay") and state.Method == "FindPartOnRay"
-						and typeof(args[1]) == "Ray" then
-						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
-						return oldNamecall(self, table.unpack(args))
-					elseif method == "FindPartOnRayWithWhitelist" and state.Method == method
-						and typeof(args[1]) == "Ray" then
-						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
-						return oldNamecall(self, table.unpack(args))
-					elseif method == "FindPartOnRayWithIgnoreList" and state.Method == method
-						and typeof(args[1]) == "Ray" then
-						args[1] = Ray.new(args[1].Origin, (targetPosition - args[1].Origin).Unit * 1000)
-						return oldNamecall(self, table.unpack(args))
+					for index, argument in ipairs(args) do
+						if typeof(argument) == "Vector3" then
+							args[index] = targetPosition
+							return oldNamecall(self, table.unpack(args))
+						end
 					end
 				end
 			end
@@ -962,18 +952,14 @@ if type(silentHookMetamethod) == "function"
 		end))
 	end)
 	if hookSuccess then
-		globalEnvironment.__BEANO_SILENT_NAMECALL_HOOKED = true
+		globalEnvironment.__BEANO_SAFE_SILENT_REMOTE_HOOKED = true
 	end
 end
--- Mouse.Hit/Target hooks also affect Roblox's camera scripts, so Silent only redirects
--- a gun raycast during a short real click window.
-silentState.HookSupported = globalEnvironment.__BEANO_SILENT_NAMECALL_HOOKED == true
+silentState.HookSupported = globalEnvironment.__BEANO_SAFE_SILENT_REMOTE_HOOKED == true
 table.insert(connections, RunService.RenderStepped:Connect(updateSilentVisuals))
 local function isDroppedGunName(name)
 	local normalizedName = string.lower(name):gsub("[%s_%-]", "")
-	return normalizedName == "gun"
-		or normalizedName == "gundrop"
-		or normalizedName == "droppedgun"
+	return normalizedName == "gun" or normalizedName == "gundrop" or normalizedName == "droppedgun"
 end
 local function isHeldByPlayer(instance)
 	for _, targetPlayer in ipairs(Players:GetPlayers()) do
@@ -1004,8 +990,9 @@ local function findDroppedGun()
 		return nil
 	end
 	gunScanRequested = false
-	for _, instance in ipairs(Workspace:GetChildren()) do
-		local canBeGunDrop = instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart")
+	for _, dropName in ipairs(GUN_DROP_NAMES) do
+		local instance = Workspace:FindFirstChild(dropName, true)
+		local canBeGunDrop = instance and (instance:IsA("Tool") or instance:IsA("Model") or instance:IsA("BasePart"))
 		if canBeGunDrop and isDroppedGunName(instance.Name) and not isHeldByPlayer(instance) then
 			cachedDroppedGun = instance
 			return instance
@@ -1030,6 +1017,10 @@ local function updateDroppedGunCham(droppedGun)
 	end
 	local gunAdornee = getGunPart(droppedGun)
 	if not gunAdornee then
+		if droppedGunHighlight and droppedGunHighlight.Parent then
+			droppedGunHighlight:Destroy()
+		end
+		droppedGunHighlight = nil
 		return
 	end
 	if not droppedGunHighlight or droppedGunHighlight.Parent ~= droppedGun then
@@ -1046,6 +1037,9 @@ local function updateDroppedGunCham(droppedGun)
 		droppedGunHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 		droppedGunHighlight.Parent = droppedGun
 	end
+	droppedGunHighlight.Enabled = true
+	droppedGunHighlight.Adornee = gunAdornee
+	droppedGunHighlight.FillTransparency = gunFillTransparency
 end
 local function moveDroppedGunToPlayer(droppedGun)
 	if not autoPickupGunEnabled or gunPickupInProgress or flingInProgress then
@@ -1075,12 +1069,15 @@ local function moveDroppedGunToPlayer(droppedGun)
 		local promptFunction = environment.fireproximityprompt
 		local touchFunction = environment.firetouchinterest
 		pcall(function()
-			for _ = 1, 6 do
-				if stopped or not autoPickupGunEnabled or not root.Parent or not gunPart.Parent or playerHasTool(player, "Gun") then
+			for _ = 1, 10 do
+				if stopped or not autoPickupGunEnabled or not root.Parent or playerHasTool(player, "Gun") then
 					break
 				end
-				local pickupPosition = gunPart.CFrame * CFrame.new(0, 2.25, 0)
-				character:PivotTo(pickupPosition)
+				gunPart = getGunPart(droppedGun)
+				if not gunPart or not gunPart.Parent then
+					break
+				end
+				root.CFrame = gunPart.CFrame * CFrame.new(0, 0.15, 0)
 				root.AssemblyLinearVelocity = Vector3.zero
 				root.AssemblyAngularVelocity = Vector3.zero
 				if prompt and type(promptFunction) == "function" then
@@ -1090,7 +1087,7 @@ local function moveDroppedGunToPlayer(droppedGun)
 					pcall(touchFunction, root, gunPart, 0)
 					pcall(touchFunction, root, gunPart, 1)
 				end
-				task.wait(0.06)
+				task.wait(0.1)
 			end
 		end)
 		if root.Parent then
@@ -1556,8 +1553,8 @@ local function requestGunScan(instance)
 		gunScanRequested = true
 	end
 end
-table.insert(connections, Workspace.ChildAdded:Connect(requestGunScan))
-table.insert(connections, Workspace.ChildRemoved:Connect(requestGunScan))
+table.insert(connections, Workspace.DescendantAdded:Connect(requestGunScan))
+table.insert(connections, Workspace.DescendantRemoving:Connect(requestGunScan))
 local gunChamElapsed = 0
 table.insert(connections, RunService.Heartbeat:Connect(function(deltaTime)
 	if not interfaceReady or (not gunChamEnabled and not autoPickupGunEnabled) then
@@ -2473,16 +2470,14 @@ if rayfieldLoaded and Rayfield then
 		end,
 	})
 	CombatTab:CreateSection("Silent")
-	CombatTab:CreateLabel("Shot-only ray redirection. It does not change your camera or screen position.", "crosshair")
+	CombatTab:CreateLabel("Gun-remote-only redirection. It does not touch camera raycasts or screen position.", "crosshair")
 	local silentToggle = CombatTab:CreateToggle({
 		Name = "Silent",
 		CurrentValue = silentState.Enabled,
 		Flag = "beano_silent_enabled",
 		Callback = function(value)
 			silentState.Enabled = value
-			if silentState.Method == "Mouse.Hit/Target" then
-				silentState.Method = "Raycast"
-			end
+			silentState.Method = "Gun remote"
 			if not value then
 				hideSilentDrawings()
 			elseif not silentState.HookSupported then
@@ -2560,13 +2555,12 @@ if rayfieldLoaded and Rayfield then
 	})
 	CombatTab:CreateDropdown({
 		Name = "Silent aim method",
-		Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList"},
+		Options = {"Gun remote"},
 		CurrentOption = {silentState.Method},
 		MultipleOptions = false,
 		Flag = "beano_silent_method",
-		Callback = function(options)
-			local selectedMethod = options[1] or "Raycast"
-			silentState.Method = selectedMethod == "Mouse.Hit/Target" and "Raycast" or selectedMethod
+		Callback = function()
+			silentState.Method = "Gun remote"
 		end,
 	})
 	CombatTab:CreateSlider({
